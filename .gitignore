@@ -1,0 +1,2 @@
+# Local reference only; GitHub injects its own deployment environment variables.
+/.env

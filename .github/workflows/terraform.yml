@@ -1,0 +1,141 @@
+name: Terraform infrastructure
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "infra/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the plan (otherwise plan only)
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TERRAFORM_VERSION: "1.16.2"
+
+defaults:
+  run:
+    shell: bash
+    working-directory: infra
+
+jobs:
+  validate:
+    name: Validate and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Check formatting
+        run: terraform fmt -check -recursive
+
+      # PR code receives neither cloud credentials nor an OIDC token permission.
+      - name: Initialize without remote state
+        run: terraform init -backend=false -input=false -lockfile=readonly -no-color
+
+      - name: Validate configuration
+        run: terraform validate -no-color
+
+      - name: Run mocked tests
+        run: terraform test -no-color
+
+  deploy:
+    name: Plan and deploy
+    needs: validate
+    if: >-
+      github.repository == 'mawasile/power-platform-terraform-demo' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: infrastructure
+    permissions:
+      contents: read
+      id-token: write
+    # All three environments share one state. Never cancel a running apply.
+    concurrency:
+      group: terraform-infrastructure
+      cancel-in-progress: false
+    env:
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      POWER_PLATFORM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      POWER_PLATFORM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      TF_STATE_STORAGE_ACCOUNT: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_CONTAINER: ${{ vars.TF_STATE_CONTAINER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+          terraform_wrapper: false
+
+      - name: Check deployment settings
+        run: |
+          for name in ARM_CLIENT_ID ARM_TENANT_ID TF_STATE_STORAGE_ACCOUNT TF_STATE_CONTAINER; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing $name. See infra/README.md for repository setup."
+              exit 1
+            fi
+          done
+          test -f terraform.tfvars
+
+      - name: Initialize remote state with OIDC
+        run: |
+          terraform init -input=false -lockfile=readonly -no-color \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
+            -backend-config="container_name=$TF_STATE_CONTAINER"
+
+      - name: Validate configuration
+        run: terraform validate -no-color
+
+      - name: Plan committed infrastructure
+        run: >-
+          terraform plan -input=false -no-color -lock-timeout=5m
+          -var-file=terraform.tfvars -out=deployment.tfplan
+
+      - name: Block deletions and replacements
+        run: |
+          # A replacement contains a delete action regardless of its ordering.
+          if ! terraform show -json deployment.tfplan | jq -e \
+            '[.resource_changes[]? | select(.change.actions | index("delete"))] | length == 0' > /dev/null; then
+            echo "::error::Plan could not be verified or contains deletions/replacements. Review it; automatic apply is blocked."
+            exit 1
+          fi
+
+      - name: Apply the saved plan
+        if: github.event_name == 'push' || inputs.apply == true
+        run: terraform apply -input=false -no-color -lock-timeout=5m deployment.tfplan
+
+      # Plans may contain sensitive values. Keep them only on this runner.
+      - name: Remove saved plan
+        if: always()
+        run: rm -f deployment.tfplan
