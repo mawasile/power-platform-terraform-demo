@@ -106,7 +106,7 @@ jobs:
               exit 1
             fi
           done
-            test -f infrastructure.tfvars
+          test -f infrastructure.tfvars
 
       - name: Initialize remote state with OIDC
         run: |
@@ -118,9 +118,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Plan committed infrastructure
-        run: >-
-          terraform plan -input=false -no-color -lock-timeout=5m
-            -var-file=infrastructure.tfvars -out=deployment.tfplan
+        run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -out=deployment.tfplan
 
       - name: Block deletions and replacements
         run: |
