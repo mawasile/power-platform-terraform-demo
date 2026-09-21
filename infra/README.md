@@ -14,10 +14,9 @@ Run Terraform from `infra`, the single root module and state boundary.
 * `modules/azure` creates one Microsoft Entra security group per environment using `hashicorp/azuread`.
 * `modules/power-platform` creates the Power Platform environments using `microsoft/power-platform`.
 * `modules/power-platform/tenant-settings.tf` manages the selected tenant-wide governance switches.
-* `modules/power-platform/dlp.tf` creates environment-scoped data loss prevention policies.
 * `tests/environments.tftest.hcl` tests both modules with mocked providers.
 * `tests/deployment.tftest.hcl` checks the actual committed tfvars with a mocked plan.
-* `tests/governance.tftest.hcl` tests tenant settings, DLP classifications, scope, and invalid configurations.
+* `tests/governance.tftest.hcl` tests the tenant-settings baseline, opt-out, and explicit setting overrides.
 
 Security groups belong to Microsoft Entra, not an Azure subscription or resource group.
 The state storage account requires an Azure subscription, but these modules do not need an `azurerm` provider.
@@ -53,7 +52,7 @@ Terraform manages the full membership list. Members added only through the porta
 Do not also manage the same group's members using separate `azuread_group_member` resources.
 When `enable_dataverse` is false, groups are still created but are not attached to the environments by this configuration.
 
-## Tenant governance and DLP
+## Tenant governance
 
 The selected baseline is enabled in `infrastructure.tfvars`. The existing workflow deploys these resources along with the environments.
 Review the governance plan before pushing to `main`, because a push triggers automatic apply.
@@ -82,37 +81,20 @@ The resource has `prevent_destroy = true`, and the workflow also blocks deletion
 Setting individual switches to `false` is an explicit tenant-wide policy change, not opting out of management.
 Deleting the resource block can bypass Terraform's lifecycle protection; keep governance changes under review.
 
-### Strict DLP policies
-
-`dlp_policies` contains one policy each for `dev`, `test`, and `prod`.
-Each key must match a managed environment. Scope is fixed to `OnlyEnvironments` with that environment's generated ID;
-tenant-wide and external-environment scopes are not exposed.
-The root `dlp_policy_ids` output reports the resulting policy IDs.
-
-The Business allowlist includes Microsoft Dataverse, SharePoint, Office 365 Outlook, Microsoft Teams, and OneDrive for Business.
-Each policy can have a different Business allowlist by changing `business_connector_ids` in tfvars.
-The module reads the tenant connector catalog and classifies it as follows:
-
-* Allowlisted connectors become Business.
-* Other unblockable connectors become Non-Business and cannot be combined with Business connectors in the same app or flow.
-* Other blockable connectors become Blocked.
-* New blockable connectors default to Blocked; the platform assigns new unblockable connectors to Non-Business.
-* A catch-all host pattern blocks custom connectors.
-
-Classic DLP cannot block every connector, so this is not a literal five-connector-only allowlist.
-It also does not restrict endpoints or individual actions within approved connectors.
-Misspelled or unavailable allowlist IDs, an empty catalog, and unknown environment keys fail the plan rather than silently changing scope.
-Catalog changes can produce classification changes on later plans even when tfvars does not change.
-
-> [!IMPORTANT]
-> DLP can suspend or prevent apps and flows that violate it. Existing DLP policies still apply; a new policy cannot relax them.
-> These are tenant-admin policies scoped to particular environments, not policies owned by environment admins.
-
-The deployment identity needs tenant-level Power Platform management access for settings, connector discovery, and DLP administration.
+The deployment identity needs tenant-level Power Platform management access for tenant settings.
 Entra group permissions or access to the demo environments alone is insufficient.
 The existing OIDC management-application registration is a prerequisite; this configuration does not grant itself admin access.
 An administrator should verify the service principal permissions before the first governance deployment.
-Mock tests validate configuration behavior, not live permissions, connector availability, or service-side policy enforcement.
+Mock tests validate configuration behavior, not live permissions or service-side enforcement.
+
+### Previously deployed data policies
+
+DLP policy resources and connector discovery have been removed from this codebase.
+Removing code does not itself change deployed policies or remote state.
+If the previously deployed policies are still tracked in state, the next live plan will propose deleting them;
+the workflow's deletion guard will block that apply.
+Before the next deployment, choose a separately reviewed policy deletion or state handoff that preserves the live policies.
+Do not bypass the deletion guard or discard the complete state file to complete this transition.
 
 ## GitHub repository setup
 
@@ -196,6 +178,5 @@ Commit `.terraform.lock.hcl` alongside the infrastructure files.
 * [AzureAD group permissions](https://raw.githubusercontent.com/hashicorp/terraform-provider-azuread/v3.9.0/docs/resources/group.md)
 * [Azure Blob backend OIDC and RBAC](https://developer.hashicorp.com/terraform/language/backend/azurerm)
 * [Control environment creation](https://learn.microsoft.com/power-platform/admin/control-environment-creation)
-* [Manage data policies](https://learn.microsoft.com/power-platform/admin/prevent-data-loss)
 * [Tenant settings resource](https://raw.githubusercontent.com/microsoft/terraform-provider-power-platform/v4.2.0/docs/resources/tenant_settings.md)
 

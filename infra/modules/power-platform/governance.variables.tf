@@ -9,31 +9,3 @@ variable "tenant_settings" {
   })
   default = null
 }
-
-variable "dlp_policies" {
-  description = "Strict DLP policies keyed by a managed environment key, each with an explicit Business connector allowlist."
-  type = map(object({
-    display_name           = string
-    business_connector_ids = set(string)
-  }))
-  default  = {}
-  nullable = false
-
-  validation {
-    condition = alltrue([
-      for policy in var.dlp_policies :
-      length(trimspace(policy.display_name)) > 0 && length(policy.business_connector_ids) > 0
-    ])
-    error_message = "Each DLP policy needs a display name and at least one Business connector."
-  }
-
-  validation {
-    condition = alltrue(flatten([
-      for policy in var.dlp_policies : [
-        for id in policy.business_connector_ids :
-        can(regex("^/providers/Microsoft[.]PowerApps/apis/[^/]+$", id))
-      ]
-    ]))
-    error_message = "Use full connector IDs such as /providers/Microsoft.PowerApps/apis/shared_sharepointonline."
-  }
-}

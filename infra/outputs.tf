@@ -17,8 +17,3 @@ output "tenant_settings_id" {
   description = "Tenant ID whose governance settings are managed, or null if disabled."
   value       = module.power_platform.tenant_settings_id
 }
-
-output "dlp_policy_ids" {
-  description = "DLP policy IDs keyed by their managed environment."
-  value       = module.power_platform.dlp_policy_ids
-}

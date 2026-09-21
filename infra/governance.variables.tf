@@ -9,13 +9,3 @@ variable "tenant_settings" {
   })
   default = null
 }
-
-variable "dlp_policies" {
-  description = "Strict DLP policies keyed by a managed environment key. Allowlisted connectors are Business; other blockable connectors and all custom connectors are Blocked."
-  type = map(object({
-    display_name           = string
-    business_connector_ids = set(string)
-  }))
-  default  = {}
-  nullable = false
-}

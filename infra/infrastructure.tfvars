@@ -44,39 +44,3 @@ tenant_settings = {
   disable_share_with_everyone                               = true
   disable_connection_sharing_with_everyone                  = true
 }
-
-# One policy per managed environment; policy keys must match environment keys.
-# Other unblockable connectors remain Non-Business (a platform limitation).
-# Everything else is Blocked, including new blockable and custom connectors.
-dlp_policies = {
-  dev = {
-    display_name = "Demo - Dev - Strict DLP"
-    business_connector_ids = [
-      "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
-      "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
-      "/providers/Microsoft.PowerApps/apis/shared_office365",
-      "/providers/Microsoft.PowerApps/apis/shared_teams",
-      "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness",
-    ]
-  }
-  test = {
-    display_name = "Demo - Test - Strict DLP"
-    business_connector_ids = [
-      "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
-      "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
-      "/providers/Microsoft.PowerApps/apis/shared_office365",
-      "/providers/Microsoft.PowerApps/apis/shared_teams",
-      "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness",
-    ]
-  }
-  prod = {
-    display_name = "Demo - Prod - Strict DLP"
-    business_connector_ids = [
-      "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps",
-      "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
-      "/providers/Microsoft.PowerApps/apis/shared_office365",
-      "/providers/Microsoft.PowerApps/apis/shared_teams",
-      "/providers/Microsoft.PowerApps/apis/shared_onedriveforbusiness",
-    ]
-  }
-}
