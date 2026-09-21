@@ -9,7 +9,7 @@ Run Terraform from `infra`, the single root module and state boundary.
 
 * `main.tf` connects the Azure and Power Platform modules.
 * `providers.tf` configures OIDC authentication and provider version constraints.
-* `infrastructure.auto.tfvars` contains the committed, non-secret infrastructure values.
+* `infrastructure.tfvars` contains the committed, non-secret infrastructure values.
 * `backend.tf` configures Azure Blob remote state with Entra authentication and locking.
 * `modules/azure` creates one Microsoft Entra security group per environment using `hashicorp/azuread`.
 * `modules/power-platform` creates the Power Platform environments using `microsoft/power-platform`.
@@ -25,12 +25,12 @@ The `azurerm` backend is built into Terraform and is separate from the AzureRM p
 
 ## Infrastructure values in Git
 
-Treat `infrastructure.auto.tfvars` as infrastructure code, not a generated file or GitHub secret.
+Treat `infrastructure.tfvars` as infrastructure code, not a generated file or GitHub secret.
 It defines Dev and Test (Sandbox) and Prod (Production), their group names and membership, the region, and Dataverse settings.
-Terraform loads it automatically; the workflow also passes it explicitly to `plan`.
+Terraform does not auto-load this filename. The workflow passes `-var-file=infrastructure.tfvars` explicitly to both `test` and `plan`.
 Change these values through reviewed pull requests. Do not generate another tfvars file in the workflow or duplicate these values in repository variables.
 
-`variables.tf` defines the input types and validation; deployment values live in `infrastructure.auto.tfvars`.
+`variables.tf` defines the input types and validation; deployment values live in `infrastructure.tfvars`.
 Module tests supply their own fixtures; a separate deployment test checks the committed tfvars without cloud access.
 The ignore rules allow this one tfvars file while excluding other tfvars, state, saved plans, and `.terraform` downloads.
 Never put tokens, passwords, or client secrets in the committed file.
@@ -55,7 +55,7 @@ When `enable_dataverse` is false, groups are still created but are not attached 
 
 ## Tenant governance and DLP
 
-The selected baseline is enabled in `infrastructure.auto.tfvars`. The existing workflow deploys these resources along with the environments.
+The selected baseline is enabled in `infrastructure.tfvars`. The existing workflow deploys these resources along with the environments.
 Review the governance plan before pushing to `main`, because a push triggers automatic apply.
 
 ### Tenant-wide settings
@@ -185,7 +185,8 @@ No legacy resource-address migration is included in this configuration.
 ## Local checks without cloud access
 
 From `infra`, run `terraform init -backend=false -lockfile=readonly`, `terraform fmt -check -recursive`,
-`terraform validate`, and `terraform test`. Both providers are mocked during tests.
+`terraform validate`, and `terraform test "-var-file=infrastructure.tfvars"`. Both providers are mocked during tests.
+The quoted argument also works in PowerShell. Plain `terraform test` does not load the deployment file and reports missing required variables.
 Real deployment is performed only through GitHub Actions.
 Commit `.terraform.lock.hcl` alongside the infrastructure files.
 

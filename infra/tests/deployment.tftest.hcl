@@ -1,4 +1,5 @@
-# No variable overrides: validate the actual committed infrastructure.auto.tfvars offline.
+# No variable overrides: validate the actual committed infrastructure.tfvars offline.
+# Run with terraform test -var-file="infrastructure.tfvars".
 mock_provider "powerplatform" {}
 
 # Override only the read-only API boundary; classify the fixture in real HCL.
