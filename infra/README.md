@@ -92,8 +92,10 @@ Mock tests validate configuration behavior, not live permissions or service-side
 DLP policy resources and connector discovery have been removed from this codebase.
 Removing code does not itself change deployed policies or remote state.
 If the previously deployed policies are still tracked in state, the next live plan will propose deleting them;
-the workflow's deletion guard will block that apply.
-Before the next deployment, choose a separately reviewed policy deletion or state handoff that preserves the live policies.
+normal runs block that apply. The explicitly authorized cleanup uses a manual run on `main` with both `apply` and `delete_demo_dlp` enabled.
+This permits only pure deletion of the three retired demo policies, matching their exact Terraform addresses, policy IDs, and names in `.github/scripts/check-terraform-plan.mjs`.
+Cleanup rejects every other resource change, including updates and replacements, and can resume if some policies have already been deleted.
+After cleanup, leave `delete_demo_dlp` disabled for normal deployment. The option defaults to false and cannot authorize deletions on pushes.
 Do not bypass the deletion guard or discard the complete state file to complete this transition.
 
 ## GitHub repository setup
@@ -156,7 +158,7 @@ Configure OIDC, repository settings, and backend storage before pushing to `main
 Deployment uses the committed lockfile and tfvars; it never runs `terraform init -upgrade`.
 Concurrent deployments are serialized and running applies are not cancelled by newer pushes.
 Azure Blob leases provide state locking, including protection from other Terraform clients.
-Plans that delete or replace any resource are blocked; there is no automatic destroy operation.
+Normal runs block plans that delete or replace any resource; the manual retired-policy cleanup is the only narrowly scoped exception.
 Intentional destructive changes require a separately reviewed process rather than bypassing the guard casually.
 Plans stay on the runner and are deleted at the end of the job, not uploaded as artifacts.
 

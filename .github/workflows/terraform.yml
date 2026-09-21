@@ -6,15 +6,22 @@ on:
     paths:
       - "infra/**"
       - ".github/workflows/terraform.yml"
+      - ".github/scripts/**"
   push:
     branches: [main]
     paths:
       - "infra/**"
       - ".github/workflows/terraform.yml"
+      - ".github/scripts/**"
   workflow_dispatch:
     inputs:
       apply:
         description: Apply the plan (otherwise plan only)
+        type: boolean
+        required: true
+        default: false
+      delete_demo_dlp:
+        description: Delete only the three retired demo DLP policies (requires apply)
         type: boolean
         required: true
         default: false
@@ -62,6 +69,9 @@ jobs:
       - name: Run mocked tests
         run: terraform test -var-file=infrastructure.tfvars -no-color
 
+      - name: Test plan safety guard
+        run: node --test ../.github/scripts/check-terraform-plan.test.mjs
+
   deploy:
     name: Plan and deploy
     needs: validate
@@ -99,7 +109,14 @@ jobs:
           terraform_wrapper: false
 
       - name: Check deployment settings
+        env:
+          CLEANUP_REQUESTED: ${{ inputs.delete_demo_dlp == true }}
+          APPLY_REQUESTED: ${{ inputs.apply == true }}
         run: |
+          if [[ "$CLEANUP_REQUESTED" == "true" && "$APPLY_REQUESTED" != "true" ]]; then
+            echo "::error::Demo DLP deletion requires explicit apply confirmation."
+            exit 1
+          fi
           for name in ARM_CLIENT_ID ARM_TENANT_ID TF_STATE_STORAGE_ACCOUNT TF_STATE_CONTAINER; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Missing $name. See infra/README.md for repository setup."
@@ -121,13 +138,11 @@ jobs:
         run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -out=deployment.tfplan
 
       - name: Block deletions and replacements
+        env:
+          ALLOW_DEMO_DLP_DELETION: ${{ github.event_name == 'workflow_dispatch' && inputs.apply == true && inputs.delete_demo_dlp == true }}
         run: |
-          # A replacement contains a delete action regardless of its ordering.
-          if ! terraform show -json deployment.tfplan | jq -e \
-            '[.resource_changes[]? | select(.change.actions | index("delete"))] | length == 0' > /dev/null; then
-            echo "::error::Plan could not be verified or contains deletions/replacements. Review it; automatic apply is blocked."
-            exit 1
-          fi
+          # Pipefail also blocks apply if Terraform cannot produce the plan JSON.
+          terraform show -json deployment.tfplan | node ../.github/scripts/check-terraform-plan.mjs
 
       - name: Apply the saved plan
         if: github.event_name == 'push' || inputs.apply == true
