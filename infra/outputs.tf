@@ -12,3 +12,13 @@ output "security_group_ids" {
   description = "Terraform-managed Entra security group object IDs, keyed by environment name."
   value       = module.azure.security_group_ids
 }
+
+output "tenant_settings_id" {
+  description = "Tenant ID whose governance settings are managed, or null if disabled."
+  value       = module.power_platform.tenant_settings_id
+}
+
+output "dlp_policy_ids" {
+  description = "DLP policy IDs keyed by their managed environment."
+  value       = module.power_platform.dlp_policy_ids
+}

@@ -6,6 +6,8 @@ variables {
   enable_dataverse = true
   language_code    = 1033
   currency_code    = "EUR"
+  tenant_settings  = null
+  dlp_policies     = {}
 
   environments = {
     dev = {

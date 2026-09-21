@@ -9,12 +9,15 @@ Run Terraform from `infra`, the single root module and state boundary.
 
 * `main.tf` connects the Azure and Power Platform modules.
 * `providers.tf` configures OIDC authentication and provider version constraints.
-* `terraform.tfvars` contains the committed, non-secret infrastructure values.
+* `infrastructure.auto.tfvars` contains the committed, non-secret infrastructure values.
 * `backend.tf` configures Azure Blob remote state with Entra authentication and locking.
 * `modules/azure` creates one Microsoft Entra security group per environment using `hashicorp/azuread`.
 * `modules/power-platform` creates the Power Platform environments using `microsoft/power-platform`.
+* `modules/power-platform/tenant-settings.tf` manages the selected tenant-wide governance switches.
+* `modules/power-platform/dlp.tf` creates environment-scoped data loss prevention policies.
 * `tests/environments.tftest.hcl` tests both modules with mocked providers.
 * `tests/deployment.tftest.hcl` checks the actual committed tfvars with a mocked plan.
+* `tests/governance.tftest.hcl` tests tenant settings, DLP classifications, scope, and invalid configurations.
 
 Security groups belong to Microsoft Entra, not an Azure subscription or resource group.
 The state storage account requires an Azure subscription, but these modules do not need an `azurerm` provider.
@@ -22,12 +25,12 @@ The `azurerm` backend is built into Terraform and is separate from the AzureRM p
 
 ## Infrastructure values in Git
 
-Treat `terraform.tfvars` as infrastructure code, not a generated file or GitHub secret.
+Treat `infrastructure.auto.tfvars` as infrastructure code, not a generated file or GitHub secret.
 It defines Dev and Test (Sandbox) and Prod (Production), their group names and membership, the region, and Dataverse settings.
 Terraform loads it automatically; the workflow also passes it explicitly to `plan`.
 Change these values through reviewed pull requests. Do not generate another tfvars file in the workflow or duplicate these values in repository variables.
 
-`variables.tf` defines the input types and validation; deployment values live in `terraform.tfvars`.
+`variables.tf` defines the input types and validation; deployment values live in `infrastructure.auto.tfvars`.
 Module tests supply their own fixtures; a separate deployment test checks the committed tfvars without cloud access.
 The ignore rules allow this one tfvars file while excluding other tfvars, state, saved plans, and `.terraform` downloads.
 Never put tokens, passwords, or client secrets in the committed file.
@@ -49,6 +52,67 @@ These references make environment creation depend on group creation.
 Terraform manages the full membership list. Members added only through the portal will be removed by a subsequent apply.
 Do not also manage the same group's members using separate `azuread_group_member` resources.
 When `enable_dataverse` is false, groups are still created but are not attached to the environments by this configuration.
+
+## Tenant governance and DLP
+
+The selected baseline is enabled in `infrastructure.auto.tfvars`. The existing workflow deploys these resources along with the environments.
+Review the governance plan before pushing to `main`, because a push triggers automatic apply.
+
+### Tenant-wide settings
+
+`tenant_settings` manages five restrictions:
+
+* Only admins can create production/sandbox environments.
+* Only admins can create trial environments.
+* Only admins can create developer environments.
+* Makers cannot share apps with Everyone.
+* Makers cannot share connections with Everyone.
+
+> [!WARNING]
+> These switches affect the entire Power Platform tenant, including environments outside this demo.
+> They are not scoped by the three environment IDs. Existing environment creators retain management of their existing environments.
+
+The resource updates the existing tenant-settings singleton. Only the five configured fields are managed;
+unrelated settings, including AI and licensing options, are omitted. Review the live plan and resulting tenant settings.
+Use only one Terraform state to manage this singleton. If it is already managed elsewhere, coordinate ownership instead of managing it twice.
+
+On a fresh deployment, `tenant_settings = null` opts out. After adoption, do not remove it casually:
+the provider's destroy operation can restore pre-management values recorded in private state.
+The resource has `prevent_destroy = true`, and the workflow also blocks deletions.
+Setting individual switches to `false` is an explicit tenant-wide policy change, not opting out of management.
+Deleting the resource block can bypass Terraform's lifecycle protection; keep governance changes under review.
+
+### Strict DLP policies
+
+`dlp_policies` contains one policy each for `dev`, `test`, and `prod`.
+Each key must match a managed environment. Scope is fixed to `OnlyEnvironments` with that environment's generated ID;
+tenant-wide and external-environment scopes are not exposed.
+The root `dlp_policy_ids` output reports the resulting policy IDs.
+
+The Business allowlist includes Microsoft Dataverse, SharePoint, Office 365 Outlook, Microsoft Teams, and OneDrive for Business.
+Each policy can have a different Business allowlist by changing `business_connector_ids` in tfvars.
+The module reads the tenant connector catalog and classifies it as follows:
+
+* Allowlisted connectors become Business.
+* Other unblockable connectors become Non-Business and cannot be combined with Business connectors in the same app or flow.
+* Other blockable connectors become Blocked.
+* New blockable connectors default to Blocked; the platform assigns new unblockable connectors to Non-Business.
+* A catch-all host pattern blocks custom connectors.
+
+Classic DLP cannot block every connector, so this is not a literal five-connector-only allowlist.
+It also does not restrict endpoints or individual actions within approved connectors.
+Misspelled or unavailable allowlist IDs, an empty catalog, and unknown environment keys fail the plan rather than silently changing scope.
+Catalog changes can produce classification changes on later plans even when tfvars does not change.
+
+> [!IMPORTANT]
+> DLP can suspend or prevent apps and flows that violate it. Existing DLP policies still apply; a new policy cannot relax them.
+> These are tenant-admin policies scoped to particular environments, not policies owned by environment admins.
+
+The deployment identity needs tenant-level Power Platform management access for settings, connector discovery, and DLP administration.
+Entra group permissions or access to the demo environments alone is insufficient.
+The existing OIDC management-application registration is a prerequisite; this configuration does not grant itself admin access.
+An administrator should verify the service principal permissions before the first governance deployment.
+Mock tests validate configuration behavior, not live permissions, connector availability, or service-side policy enforcement.
 
 ## GitHub repository setup
 
@@ -130,3 +194,7 @@ Commit `.terraform.lock.hcl` alongside the infrastructure files.
 * [Power Platform OIDC setup and prerequisites](https://raw.githubusercontent.com/microsoft/terraform-provider-power-platform/v4.2.0/docs/guides/oidc.md)
 * [AzureAD group permissions](https://raw.githubusercontent.com/hashicorp/terraform-provider-azuread/v3.9.0/docs/resources/group.md)
 * [Azure Blob backend OIDC and RBAC](https://developer.hashicorp.com/terraform/language/backend/azurerm)
+* [Control environment creation](https://learn.microsoft.com/power-platform/admin/control-environment-creation)
+* [Manage data policies](https://learn.microsoft.com/power-platform/admin/prevent-data-loss)
+* [Tenant settings resource](https://raw.githubusercontent.com/microsoft/terraform-provider-power-platform/v4.2.0/docs/resources/tenant_settings.md)
+

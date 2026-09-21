@@ -26,4 +26,6 @@ module "power_platform" {
   enable_dataverse = var.enable_dataverse
   language_code    = var.language_code
   currency_code    = var.currency_code
+  tenant_settings  = var.tenant_settings
+  dlp_policies     = var.dlp_policies
 }
