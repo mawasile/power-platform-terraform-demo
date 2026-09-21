@@ -6,14 +6,16 @@ module "connector_catalog" {
 
 locals {
   connector_catalog = length(var.dlp_policies) > 0 ? module.connector_catalog[0].connectors : []
+  # The live catalog can contain multiple entries for the same connector ID.
   connectors_by_id = {
-    for connector in local.connector_catalog : connector.id => {
-      id                           = connector.id
+    for id in toset([for connector in local.connector_catalog : connector.id]) : id => {
+      id                           = id
       action_rules                 = []
       endpoint_rules               = []
       default_action_rule_behavior = ""
     }
   }
+  # Any unblockable entry wins if duplicate records disagree on blockability.
   unblockable_connector_ids = toset([
     for connector in local.connector_catalog : connector.id if connector.unblockable
   ])

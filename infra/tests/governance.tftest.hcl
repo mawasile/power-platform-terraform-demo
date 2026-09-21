@@ -200,3 +200,41 @@ run "reject_empty_catalog" {
   }
   expect_failures = [powerplatform_data_loss_prevention_policy.environment]
 }
+
+run "duplicate_connector_ids" {
+  command = plan
+  module {
+    source = "./modules/power-platform"
+  }
+  override_module {
+    target = module.connector_catalog[0]
+    outputs = {
+      connectors = [
+        { id = "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps", unblockable = true },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps", unblockable = true },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_sharepointonline", unblockable = true },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_dynamics365marketing", unblockable = false },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_dynamics365marketing", unblockable = false },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_d365marketingforapps", unblockable = false },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_d365marketingforapps", unblockable = false },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_approvals", unblockable = true },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_approvals", unblockable = false },
+        { id = "/providers/Microsoft.PowerApps/apis/shared_http", unblockable = false },
+      ]
+    }
+  }
+  assert {
+    condition = alltrue([
+      for name, policy in powerplatform_data_loss_prevention_policy.environment :
+      toset([for c in policy.business_connectors : c.id]) == var.dlp_policies[name].business_connector_ids &&
+      contains([for c in policy.non_business_connectors : c.id], "/providers/Microsoft.PowerApps/apis/shared_approvals") &&
+      toset([for c in policy.blocked_connectors : c.id]) == toset([
+        "/providers/Microsoft.PowerApps/apis/shared_dynamics365marketing",
+        "/providers/Microsoft.PowerApps/apis/shared_d365marketingforapps",
+        "/providers/Microsoft.PowerApps/apis/shared_http",
+      ]) &&
+      length(policy.business_connectors) + length(policy.non_business_connectors) + length(policy.blocked_connectors) == 6
+    ])
+    error_message = "Duplicate catalog IDs must be classified once; any unblockable entry must keep that connector out of Blocked."
+  }
+}
