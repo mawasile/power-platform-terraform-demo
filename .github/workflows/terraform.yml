@@ -1,16 +1,11 @@
 name: Terraform infrastructure
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "infra/**"
-      - ".github/workflows/terraform.yml"
-      - ".github/scripts/**"
   push:
     branches: [main]
     paths:
       - "infra/**"
+      - "solutions/**"
       - ".github/workflows/terraform.yml"
       - ".github/scripts/**"
   workflow_dispatch:
@@ -64,7 +59,6 @@ jobs:
       - name: Check formatting
         run: terraform fmt -check -recursive
 
-      # PR code receives neither cloud credentials nor an OIDC token permission.
       - name: Initialize without remote state
         run: terraform init -backend=false -input=false -lockfile=readonly -no-color
 
@@ -82,8 +76,7 @@ jobs:
     needs: validate
     if: >-
       github.repository == 'mawasile/power-platform-terraform-demo' &&
-      github.ref == 'refs/heads/main' &&
-      github.event_name != 'pull_request'
+      github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     environment: infrastructure
