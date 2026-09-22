@@ -1,5 +1,6 @@
 terraform {
-  required_version = ">= 1.7.0, < 2.0.0"
+  # 1.9 is required for input variable validation that references other variables.
+  required_version = ">= 1.9.0, < 2.0.0"
 
   required_providers {
     azuread = {
@@ -8,7 +9,7 @@ terraform {
     }
     powerplatform = {
       source  = "microsoft/power-platform"
-      version = "~> 4.2.0"
+      version = ">= 4.2.0"
     }
   }
 }

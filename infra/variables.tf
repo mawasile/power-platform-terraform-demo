@@ -11,18 +11,15 @@ variable "macro_region" {
 }
 
 variable "environments" {
-  description = "Power Platform environments keyed by a stable short name, with per-environment provisioning, access, settings, and managed controls. Null provisioning overrides inherit the root defaults."
+  description = "Power Platform environments keyed by a stable short name, with per-environment provisioning, settings, and managed controls. Null provisioning overrides inherit the root defaults."
   type = map(object({
-    display_name                = string
-    environment_type            = string
-    security_group_display_name = optional(string)
-    security_group_owner_ids    = optional(set(string), [])
-    security_group_member_ids   = optional(set(string), [])
-    location                    = optional(string)
-    macro_region                = optional(string)
-    enable_dataverse            = optional(bool)
-    language_code               = optional(number)
-    currency_code               = optional(string)
+    display_name     = string
+    environment_type = string
+    location         = optional(string)
+    macro_region     = optional(string)
+    enable_dataverse = optional(bool)
+    language_code    = optional(number)
+    currency_code    = optional(string)
     settings = optional(object({
       audit = optional(object({
         plugin_trace_log_setting     = string
@@ -96,24 +93,6 @@ variable "environments" {
       for environment in var.environments : length(trimspace(environment.display_name)) > 0
     ])
     error_message = "Every environment must have a non-empty display_name."
-  }
-
-  validation {
-    condition = alltrue([
-      for environment in var.environments :
-      environment.security_group_display_name == null ? true : length(trimspace(environment.security_group_display_name)) > 0
-    ])
-    error_message = "If specified, security_group_display_name must not be empty."
-  }
-
-  validation {
-    condition = alltrue(flatten([
-      for environment in var.environments : [
-        for object_id in setunion(environment.security_group_owner_ids, environment.security_group_member_ids) :
-        can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", object_id))
-      ]
-    ]))
-    error_message = "Security group owners and members must be Entra object IDs in GUID format, not email addresses or application client IDs."
   }
 }
 

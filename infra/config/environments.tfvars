@@ -1,14 +1,12 @@
 # Each key is a stable Terraform resource identity. Do not rename deployed keys.
 # Add an environment by adding a key here; Production types must meet the strict baseline.
 # Region, Dataverse, language, and currency inherit infrastructure.tfvars unless
-# overridden inside an environment. Tenant-wide controls belong in tenant.tfvars.
+# overridden inside an environment. Entra access groups live in azure.tfvars,
+# and tenant-wide controls belong in tenant.tfvars.
 environments = {
   dev = {
-    display_name                = "Demo - Dev"
-    environment_type            = "Sandbox"
-    security_group_display_name = "Demo - Dev - Users"
-    security_group_owner_ids    = []
-    security_group_member_ids   = []
+    display_name     = "Demo - Dev"
+    environment_type = "Sandbox"
 
     settings = {
       audit = {
@@ -27,11 +25,8 @@ environments = {
   }
 
   test = {
-    display_name                = "Demo - Test"
-    environment_type            = "Sandbox"
-    security_group_display_name = "Demo - Test - Users"
-    security_group_owner_ids    = []
-    security_group_member_ids   = []
+    display_name     = "Demo - Test"
+    environment_type = "Sandbox"
 
     settings = {
       audit = {
@@ -59,11 +54,8 @@ environments = {
   }
 
   prod = {
-    display_name                = "Demo - Prod"
-    environment_type            = "Production"
-    security_group_display_name = "Demo - Prod - Users"
-    security_group_owner_ids    = []
-    security_group_member_ids   = []
+    display_name     = "Demo - Prod"
+    environment_type = "Production"
 
     settings = {
       audit = {
@@ -93,8 +85,5 @@ environments = {
   }
 }
 
-# Add intended users' Entra object IDs to security_group_member_ids.
-# Membership is authoritative; portal-only additions are removed on apply.
-# The deployment identity is always a group owner, not an automatic member.
 # Managed Environment sharing limits do not revoke existing sharing grants.
 # A blocked_attachment_extensions set replaces that environment's whole list.

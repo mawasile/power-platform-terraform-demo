@@ -10,6 +10,7 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 !/infra/infrastructure.tfvars
+!/infra/config/azure.tfvars
 !/infra/config/environments.tfvars
 !/infra/config/tenant.tfvars
 

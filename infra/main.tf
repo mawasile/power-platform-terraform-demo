@@ -3,9 +3,9 @@ module "azure" {
 
   security_groups = {
     for name, environment in var.environments : name => {
-      display_name = coalesce(environment.security_group_display_name, "${environment.display_name} - Users")
-      owner_ids    = environment.security_group_owner_ids
-      member_ids   = environment.security_group_member_ids
+      display_name = coalesce(try(var.environment_access_groups[name].display_name, null), "${environment.display_name} - Users")
+      owner_ids    = try(var.environment_access_groups[name].owner_ids, [])
+      member_ids   = try(var.environment_access_groups[name].member_ids, [])
     }
   }
 }

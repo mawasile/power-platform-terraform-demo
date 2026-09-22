@@ -62,7 +62,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Run mocked tests
-        run: terraform test -var-file=infrastructure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -no-color
+        run: terraform test -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -no-color
 
       - name: Test plan safety guard
         run: node --test ../.github/scripts/check-terraform-plan.test.mjs
@@ -112,6 +112,7 @@ jobs:
             fi
           done
           test -f infrastructure.tfvars
+          test -f config/azure.tfvars
           test -f config/environments.tfvars
           test -f config/tenant.tfvars
 
@@ -125,7 +126,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Plan committed infrastructure
-        run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
+        run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
 
       - name: Block deletions and replacements
         run: |

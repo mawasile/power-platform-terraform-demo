@@ -10,15 +10,15 @@ The module refactor preserves the existing backend and OIDC configuration; modul
 
 * `main.tf` keeps `module.azure` unchanged and connects `module.power_platform` to `./modules/power-platform/environments`. The legacy module label preserves environment state addresses.
 * `tenant.tf` connects `module.tenant` to `./modules/power-platform/tenant` and declares the tenant-settings state move.
-* `variables.tf` defines shared defaults and environment inputs; `tenant.variables.tf` defines the separate tenant input.
+* `variables.tf` defines shared defaults and environment inputs; `azure.variables.tf` defines the Entra group input and `tenant.variables.tf` defines the separate tenant input.
 * `providers.tf` configures OIDC authentication and provider version constraints.
-* `infrastructure.tfvars` contains shared provisioning defaults, `config/environments.tfvars` contains the environment profiles, and `config/tenant.tfvars` configures the tenant singleton.
+* `infrastructure.tfvars` contains shared provisioning defaults, `config/azure.tfvars` configures the Microsoft Entra access groups, `config/environments.tfvars` contains the environment profiles, and `config/tenant.tfvars` configures the tenant singleton.
 * `backend.tf` configures Azure Blob remote state with Entra authentication and locking.
 * `modules/azure` creates one Microsoft Entra security group per environment using `hashicorp/azuread`.
 * `modules/power-platform/environments/main.tf` provisions environments using `microsoft/power-platform`; `settings.tf` manages `powerplatform_environment_settings` for auditing, email upload limits, and blocked attachments, and `managed-environments.tf` manages sharing and solution-checker controls.
 * `modules/power-platform/tenant` owns the selected tenant-wide governance switches separately from environment provisioning.
 * `tests/environments.tftest.hcl` covers environment provisioning and controls with mocked providers.
-* `tests/deployment.tftest.hcl` checks the committed three-file configuration with a mocked apply, including generated ID wiring.
+* `tests/deployment.tftest.hcl` checks the committed four-file configuration with a mocked apply, including generated ID wiring.
 * `tests/environment-settings.tftest.hcl` tests the reusable environment module's settings and sharing validation independently of the production policy.
 * `tests/governance.tftest.hcl` covers tenant governance. The expanded tests exercise profiles, overrides, and validation failures without cloud access.
 
@@ -28,15 +28,16 @@ The `azurerm` backend is built into Terraform and is separate from the AzureRM p
 
 ## Infrastructure values in Git
 
-Treat these three committed, non-secret files as infrastructure code, not generated files or GitHub secrets:
+Treat these four committed, non-secret files as infrastructure code, not generated files or GitHub secrets:
 
 * `infrastructure.tfvars` defines shared location, macro-region, Dataverse, language, and currency defaults.
-* `config/environments.tfvars` defines the environment profiles, including names, types, group membership, environment settings, and Managed Environment controls.
+* `config/azure.tfvars` defines the Microsoft Entra access groups: their names, owners, and members.
+* `config/environments.tfvars` defines the Power Platform profiles, including names, types, environment settings, and Managed Environment controls.
 * `config/tenant.tfvars` configures the tenant-settings singleton once, not once per environment.
 
-Terraform does not auto-load these filenames. The workflow passes all three files explicitly to both `test` and `plan`.
+Terraform does not auto-load these filenames. The workflow passes all four files explicitly to both `test` and `plan`.
 Change values through reviewed pull requests. Do not generate extra tfvars files in the workflow or duplicate these values in repository variables.
-The `.gitignore` allowlist names exactly these three paths while excluding other tfvars, state, saved plans, and `.terraform` downloads.
+The `.gitignore` allowlist names exactly these four paths while excluding other tfvars, state, saved plans, and `.terraform` downloads.
 Never put tokens, passwords, or client secrets in the committed files.
 
 The root accepts any number of environments, keyed by a short lowercase name such as `dev` or `uat-eu`.
@@ -52,9 +53,8 @@ Add another entry to `config/environments.tfvars` with a new key, then review th
 
 ```hcl
 "uat-eu" = {
-  display_name                = "Demo - UAT"
-  environment_type            = "Sandbox"
-  security_group_display_name = "Demo - UAT - Users"
+  display_name     = "Demo - UAT"
+  environment_type = "Sandbox"
   settings = {
     audit = {
       plugin_trace_log_setting     = "Exception"
@@ -67,6 +67,8 @@ Add another entry to `config/environments.tfvars` with a new key, then review th
   managed_environment = null
 }
 ```
+
+Its Entra access group is created automatically. Add a matching key to `config/azure.tfvars` only to set a custom name, owners, or members.
 
 Terraform then creates that environment and its own Entra access group, leaving existing environments untouched.
 The strict baseline follows `environment_type`, not the key name: every `Production` environment must satisfy it,
@@ -85,11 +87,14 @@ Module tests supply their own fixtures; the deployment test checks the committed
 
 ### Environment access groups
 
-Each entry in `environments` supports these group settings:
+`config/azure.tfvars` keys `environment_access_groups` by environment name and supports these settings:
 
-* `security_group_display_name`: defaults to the environment display name followed by `- Users`, separated by a space
-* `security_group_owner_ids`: additional user or service-principal object IDs; the current Terraform identity is always included
-* `security_group_member_ids`: member object IDs; defaults to an empty set
+* `display_name`: defaults to the environment display name followed by `- Users`, separated by a space
+* `owner_ids`: additional user or service-principal object IDs; the current Terraform identity is always included
+* `member_ids`: member object IDs; defaults to an empty set
+
+An environment with no entry gets the default name, no extra owners, and no members.
+A key that matches no environment is rejected, because its owners and members would otherwise be ignored silently.
 
 The root outputs include `environment_ids`, `environment_urls`, and `security_group_ids`, keyed by `dev`, `test`, and `prod`.
 The Power Platform module receives each group's `object_id`, not the provider's `/groups/...` resource path.
@@ -285,10 +290,9 @@ The [Terraform infrastructure workflow](../.github/workflows/terraform.yml) runs
 3. Manual runs on `main` plan only by default. Select the `apply` checkbox to apply the saved plan in that run.
 
 Configure OIDC, repository settings, and backend storage before pushing to `main` for the first deployment.
-Deployment uses the committed lockfile and all three tfvars files; it never runs `terraform init -upgrade`.
-Both mocked tests and the deployment plan load `infrastructure.tfvars`, `config/environments.tfvars`, and `config/tenant.tfvars`.
-The plan uses `terraform plan "-var-file=infrastructure.tfvars" "-var-file=config/environments.tfvars" "-var-file=config/tenant.tfvars" -out=deployment.tfplan`,
-with the workflow's additional noninteractive and locking flags. Apply consumes that saved plan rather than reloading different profiles.
+Deployment uses the committed lockfile and all four tfvars files; it never runs `terraform init -upgrade`.
+Both mocked tests and the deployment plan load `infrastructure.tfvars`, `config/azure.tfvars`, `config/environments.tfvars`, and `config/tenant.tfvars`.
+Apply consumes the saved plan rather than reloading different profiles.
 Concurrent deployments are serialized and running applies are not cancelled by newer pushes.
 Azure Blob leases provide state locking, including protection from other Terraform clients.
 Normal runs block plans that delete or replace any resource, and the guard also fails closed on an unreadable or incomplete plan.
@@ -301,7 +305,7 @@ If resources exist but are not tracked in this state, coordinate their migration
 ## Local checks without cloud access
 
 From `infra`, run `terraform init -backend=false -lockfile=readonly`, `terraform fmt -check -recursive`,
-`terraform validate`, and `terraform test "-var-file=infrastructure.tfvars" "-var-file=config/environments.tfvars" "-var-file=config/tenant.tfvars"`.
+`terraform validate`, and `terraform test "-var-file=infrastructure.tfvars" "-var-file=config/azure.tfvars" "-var-file=config/environments.tfvars" "-var-file=config/tenant.tfvars"`.
 Both providers are mocked during tests. Quote each complete `-var-file=...` argument in PowerShell.
 Plain `terraform test` does not load these deployment files and reports missing required variables.
 Mock tests do not verify licenses, capacity, live permissions, or service-side enforcement.

@@ -8,6 +8,9 @@ variables {
   currency_code    = "EUR"
   tenant_settings  = null
 
+  # Ignore the committed access groups so runs may redefine the environment set.
+  environment_access_groups = {}
+
   environments = {
     dev = {
       display_name     = "Demo - Dev"
@@ -226,19 +229,12 @@ run "custom_group_configuration" {
   command = plan
 
   variables {
-    environments = {
+    environment_access_groups = {
       dev = {
-        display_name                = "Demo - Dev"
-        environment_type            = "Sandbox"
-        security_group_display_name = "Custom Dev Access"
-        security_group_owner_ids    = ["11111111-1111-1111-1111-111111111111", "55555555-5555-5555-5555-555555555555"]
-        security_group_member_ids   = ["66666666-6666-6666-6666-666666666666"]
+        display_name = "Custom Dev Access"
+        owner_ids    = ["11111111-1111-1111-1111-111111111111", "55555555-5555-5555-5555-555555555555"]
+        member_ids   = ["66666666-6666-6666-6666-666666666666"]
       }
-      test = {
-        display_name     = "Demo - Test"
-        environment_type = "Sandbox"
-      }
-      prod = var.environments.prod
     }
   }
 
@@ -252,8 +248,12 @@ run "custom_group_configuration" {
   }
 
   assert {
-    condition     = length(module.azure.security_groups["test"].members) == 0 && length(module.azure.security_groups["prod"].members) == 0
-    error_message = "Dev members must not be added to test or prod."
+    condition = (
+      module.azure.security_groups["test"].display_name == "Demo - Test - Users" &&
+      length(module.azure.security_groups["test"].members) == 0 &&
+      length(module.azure.security_groups["prod"].members) == 0
+    )
+    error_message = "Environments without an entry must keep the default group name and no members."
   }
 }
 
@@ -261,21 +261,28 @@ run "reject_invalid_member_id" {
   command = plan
 
   variables {
-    environments = {
+    environment_access_groups = {
       dev = {
-        display_name              = "Demo - Dev"
-        environment_type          = "Sandbox"
-        security_group_member_ids = ["user@example.com"]
+        member_ids = ["user@example.com"]
       }
-      test = {
-        display_name     = "Demo - Test"
-        environment_type = "Sandbox"
-      }
-      prod = var.environments.prod
     }
   }
 
-  expect_failures = [var.environments]
+  expect_failures = [var.environment_access_groups]
+}
+
+run "reject_unknown_access_group_key" {
+  command = plan
+
+  variables {
+    environment_access_groups = {
+      staging = {
+        member_ids = ["66666666-6666-6666-6666-666666666666"]
+      }
+    }
+  }
+
+  expect_failures = [var.environment_access_groups]
 }
 
 run "per_environment_provisioning_overrides" {
