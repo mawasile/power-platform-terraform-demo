@@ -26,11 +26,6 @@ override_resource {
 }
 
 override_resource {
-  target = module.azure.azuread_group.environment_access["preprod"]
-  values = { object_id = "55555555-5555-5555-5555-555555555555" }
-}
-
-override_resource {
   target = module.power_platform.powerplatform_environment.environments["dev"]
   values = { id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" }
 }
@@ -45,29 +40,23 @@ override_resource {
   values = { id = "cccccccc-cccc-cccc-cccc-cccccccccccc" }
 }
 
-override_resource {
-  target = module.power_platform.powerplatform_environment.environments["preprod"]
-  values = { id = "dddddddd-dddd-dddd-dddd-dddddddddddd" }
-}
-
 run "committed_configuration" {
   # Mock apply resolves IDs so governance-to-environment wiring is tested too.
   command = apply
 
   assert {
     condition = (
-      length(output.environment_ids) == 4 &&
+      length(output.environment_ids) == 3 &&
       toset(keys(output.environment_ids)) == toset(keys(output.security_group_ids))
     )
-    error_message = "The committed configuration must plan four environments with matching security groups."
+    error_message = "The committed configuration must plan three environments with matching security groups."
   }
 
   assert {
     condition = (
-      toset(keys(module.power_platform.managed_environments)) == toset(["test", "prod", "preprod"]) &&
+      toset(keys(module.power_platform.managed_environments)) == toset(["test", "prod"]) &&
       module.power_platform.managed_environments["test"].solution_checker_mode == "Warn" &&
       module.power_platform.managed_environments["prod"].solution_checker_mode == "Block" &&
-      module.power_platform.managed_environments["preprod"].solution_checker_mode == "Block" &&
       module.power_platform.managed_environments["test"].max_limit_user_sharing == 20 &&
       module.power_platform.managed_environments["prod"].max_limit_user_sharing == 5 &&
       !module.power_platform.managed_environments["test"].power_automate_is_sharing_disabled &&
@@ -117,22 +106,20 @@ run "committed_configuration" {
 
   assert {
     condition = (
-      toset(keys(module.solutions.deployments)) == toset(["TerrraformExampleSolution/test", "TerrraformExampleSolution/prod", "TerrraformExampleSolution/preprod"]) &&
+      toset(keys(module.solutions.deployments)) == toset(["TerrraformExampleSolution/test", "TerrraformExampleSolution/prod"]) &&
       module.solutions.deployments["TerrraformExampleSolution/test"].environment_id == output.environment_ids["test"] &&
       module.solutions.deployments["TerrraformExampleSolution/prod"].environment_id == output.environment_ids["prod"] &&
-      module.solutions.deployments["TerrraformExampleSolution/preprod"].environment_id == output.environment_ids["preprod"] &&
       module.solutions.deployments["TerrraformExampleSolution/prod"].version == "1.0.0.2"
     )
-    error_message = "The committed solution must import into test, prod, and preprod, and never into dev."
+    error_message = "The committed solution must import into test and prod, and never into dev."
   }
 
   assert {
     condition = (
       module.solutions.environment_variable_values["TerrraformExampleSolution/test/bal_MagicNumber"].value == "42" &&
       module.solutions.environment_variable_values["TerrraformExampleSolution/prod/bal_MagicNumber"].value == "7" &&
-      module.solutions.environment_variable_values["TerrraformExampleSolution/preprod/bal_MagicNumber"].value == "7" &&
       module.solutions.environment_variable_values["TerrraformExampleSolution/prod/bal_MagicNumber"].environment_id == output.environment_ids["prod"]
     )
-    error_message = "Each environment must receive its own Magic Number value, with preprod matching prod."
+    error_message = "Each environment must receive its own Magic Number value."
   }
 }

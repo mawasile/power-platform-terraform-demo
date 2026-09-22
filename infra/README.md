@@ -5,7 +5,7 @@ description: Shared-state Terraform modules for Power Platform environments, Mic
 
 ## Structure
 
-Run Terraform from `infra`, the single root module and state boundary for dev, test, preprod, prod, and tenant governance.
+Run Terraform from `infra`, the single root module and state boundary for dev, test, prod, and tenant governance.
 The module refactor preserves the existing backend and OIDC configuration; module folders are not separate deployment roots.
 
 * `main.tf` keeps `module.azure` unchanged and connects `module.power_platform` to `./modules/power-platform/environments`. The legacy module label preserves environment state addresses.
@@ -75,7 +75,7 @@ A definition with no value stays valid until a consumer needs one, and values ar
 > Validate in test first, and expect a higher version to upgrade through Dataverse stage-and-upgrade, which removes omitted components.
 
 The root accepts any number of environments, keyed by a short lowercase name such as `dev` or `uat-eu`.
-The committed demo defines `dev`, `test`, `preprod`, and `prod`. A key is a resource identity: renaming a deployed key replaces that environment.
+The committed demo defines `dev`, `test`, and `prod`. A key is a resource identity: renaming a deployed key replaces that environment.
 Keep every profile in each invocation against this shared state.
 Do not invoke a dev-only, test-only, or prod-only file as an isolated deployment against it.
 Terraform replaces repeated map variable values; it does not deep-merge them across files.
@@ -130,7 +130,7 @@ Module tests supply their own fixtures; the deployment test checks the committed
 An environment with no entry gets the default name, no extra owners, and no members.
 A key that matches no environment is rejected, because its owners and members would otherwise be ignored silently.
 
-The root outputs include `environment_ids`, `environment_urls`, and `security_group_ids`, keyed by `dev`, `test`, `preprod`, and `prod`.
+The root outputs include `environment_ids`, `environment_urls`, and `security_group_ids`, keyed by `dev`, `test`, and `prod`.
 The Power Platform module receives each group's `object_id`, not the provider's `/groups/...` resource path.
 These references make environment creation depend on group creation.
 
@@ -145,21 +145,19 @@ Its `settings` and `managed_environment` configurations must also be null.
 
 ## Environment governance
 
-The profiles intentionally make prod stricter than dev and test. Managed Environments are selected for test, preprod, and prod.
-preprod is a second Production environment: it carries the identical strict baseline as prod so a promoted change is validated
-under prod-equivalent settings before it reaches prod itself.
+The profiles intentionally make prod stricter than dev and test. Managed Environments are selected for test and prod only.
 
-| Setting               | Dev         | Test        | Preprod    | Prod       |
-|-----------------------|-------------|-------------|------------|------------|
-| Environment type      | Sandbox     | Sandbox     | Production | Production |
-| Auditing              | Enabled     | Enabled     | Enabled    | Enabled    |
-| Audit retention days  | 31          | 90          | 365        | 365        |
-| Plug-in tracing       | `Exception` | `Exception` | `Off`      | `Off`      |
-| User-access auditing  | Disabled    | Disabled    | Enabled    | Enabled    |
-| Read auditing         | Disabled    | Disabled    | Disabled   | Disabled   |
-| Email upload limit    | 32 MB       | 16 MB       | 5 MB       | 5 MB       |
-| Blocked attachments   | Unmanaged   | 7 types     | 16 types   | 16 types   |
-| Managed Environment   | Null        | Enabled     | Enabled    | Enabled    |
+| Setting               | Dev         | Test        | Prod       |
+|-----------------------|-------------|-------------|------------|
+| Environment type      | Sandbox     | Sandbox     | Production |
+| Auditing              | Enabled     | Enabled     | Enabled    |
+| Audit retention days  | 31          | 90          | 365        |
+| Plug-in tracing       | `Exception` | `Exception` | `Off`      |
+| User-access auditing  | Disabled    | Disabled    | Enabled    |
+| Read auditing         | Disabled    | Disabled    | Disabled   |
+| Email upload limit    | 32 MB       | 16 MB       | 5 MB       |
+| Blocked attachments   | Unmanaged   | 7 types     | 16 types   |
+| Managed Environment   | Null        | Enabled     | Enabled    |
 
 Each profile groups these under `settings`, which maps to one `powerplatform_environment_settings` resource per environment.
 The environment module validates whole-day audit retention from 31 through 24855, or `-1` for indefinite retention.
@@ -176,13 +174,13 @@ The 365-day production baseline is a demo policy, not a compliance guarantee.
 > Review the current list before applying, because a short list can remove existing protections.
 
 The module rejects an empty set, which would clear the list, and requires lowercase extensions without leading dots.
-Dev omits this setting and keeps whatever the environment already blocks. Test, preprod, and prod declare explicit demo lists.
+Dev omits this setting and keeps whatever the environment already blocks. Test and prod declare explicit demo lists.
 
 ### Managed Environment controls
 
 * Test disables canvas-app sharing to security groups and caps individual sharing at 20 users. Solution checker uses `Warn`; flow sharing and agent editor grants remain allowed. Agent viewer sharing excludes security groups and is capped at 20 users.
-* Prod and preprod disable canvas-app sharing to security groups and cap individual sharing at 5 users. Solution checker uses `Block`; flow sharing, agent viewer sharing, and agent editor grants are blocked. The inactive agent viewer cap is `-1`.
-* All three managed profiles disable usage insights and leave validation emails unsuppressed. Solution-checker rule exclusions are not managed here, so this configuration excludes no rules and leaves any existing exclusions in place.
+* Prod disables canvas-app sharing to security groups and caps individual sharing at 5 users. Solution checker uses `Block`; flow sharing, agent viewer sharing, and agent editor grants are blocked. The inactive agent viewer cap is `-1`.
+* Both profiles disable usage insights and leave validation emails unsuppressed. Solution-checker rule exclusions are not managed here, so this configuration excludes no rules and leaves any existing exclusions in place.
 * Dev has `managed_environment = null`, so this configuration does not manage those controls for dev. This does not prove an existing dev environment is unmanaged outside Terraform.
 
 Root validation requires every Production environment to have auditing, user-access auditing, blocked attachment extensions,

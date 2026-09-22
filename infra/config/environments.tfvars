@@ -83,36 +83,6 @@ environments = {
       copilot_max_limit_user_sharing                     = -1
     }
   }
-
-  # Same profile as prod: preprod exists to validate prod-strict settings before promotion.
-  preprod = {
-    display_name     = "Demo - Preprod"
-    environment_type = "Production"
-
-    settings = {
-      audit = {
-        plugin_trace_log_setting     = "Off"
-        is_audit_enabled             = true
-        is_user_access_audit_enabled = true
-        is_read_audit_enabled        = false
-        log_retention_period_in_days = 365
-      }
-      max_upload_file_size_in_bytes = 5242880
-      blocked_attachment_extensions = ["bat", "cmd", "com", "cpl", "dll", "exe", "hta", "jar", "js", "lnk", "msi", "ps1", "reg", "scr", "vbs", "wsf"]
-    }
-    managed_environment = {
-      is_usage_insights_disabled                         = true
-      is_group_sharing_disabled                          = true
-      limit_sharing_mode                                 = "ExcludeSharingToSecurityGroups"
-      max_limit_user_sharing                             = 5
-      solution_checker_mode                              = "Block"
-      suppress_validation_emails                         = false
-      power_automate_is_sharing_disabled                 = true
-      copilot_allow_grant_editor_permissions_when_shared = false
-      copilot_limit_sharing_mode                         = "DisableSharing"
-      copilot_max_limit_user_sharing                     = -1
-    }
-  }
 }
 
 # Managed Environment sharing limits do not revoke existing sharing grants.
