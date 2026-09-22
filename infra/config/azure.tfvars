@@ -18,6 +18,12 @@ environment_access_groups = {
     owner_ids    = []
     member_ids   = []
   }
+
+  preprod = {
+    display_name = "Demo - Preprod - Users"
+    owner_ids    = []
+    member_ids   = []
+  }
 }
 
 # Add intended users' Entra object IDs to member_ids before granting access.
