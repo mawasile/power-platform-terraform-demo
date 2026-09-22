@@ -205,14 +205,9 @@ Mock tests validate configuration behavior, not live permissions or service-side
 
 ### Previously deployed data policies
 
-DLP policy resources and connector discovery have been removed from this codebase.
-Removing code does not itself change deployed policies or remote state.
-If the previously deployed policies are still tracked in state, the next live plan will propose deleting them;
-normal runs block that apply. The explicitly authorized cleanup uses a manual run on `main` with both `apply` and `delete_demo_dlp` enabled.
-This permits only pure deletion of the three retired demo policies, matching their exact Terraform addresses, policy IDs, and names in `.github/scripts/check-terraform-plan.mjs`.
-Cleanup rejects every other resource change, including updates and replacements, and can resume if some policies have already been deleted.
-After cleanup, leave `delete_demo_dlp` disabled for normal deployment. The option defaults to false and cannot authorize deletions on pushes.
-Do not bypass the deletion guard or discard the complete state file to complete this transition.
+DLP policy resources and connector discovery were removed from this codebase, and the three retired demo policies
+were deleted from the tenant through a separately authorized run. No DLP policy remains in this configuration or its state.
+Restoring data policies would require new resources and a reviewed plan.
 
 ## State compatibility and extension
 
@@ -285,10 +280,6 @@ Do not change the account, container, or key after deployment without explicitly
 
 The [Terraform infrastructure workflow](../.github/workflows/terraform.yml) runs from `infra`.
 
-> [!WARNING]
-> The current working tree is missing `.github/scripts/check-terraform-plan.mjs` and `.github/scripts/check-terraform-plan.test.mjs`, which the workflow still references.
-> These pre-existing deletions block the workflow until resolved separately. Do not remove or bypass the safety guard to work around them.
-
 1. Pull requests to `main` run formatting, backend-free initialization, validation, and mocked tests. This job has no cloud secrets or OIDC token permission; it does not perform a live cloud plan.
 2. Pushes to `main` affecting infrastructure or the workflow run those checks, then plan and apply using the protected environment.
 3. Manual runs on `main` plan only by default. Select the `apply` checkbox to apply the saved plan in that run.
@@ -300,7 +291,7 @@ The plan uses `terraform plan "-var-file=infrastructure.tfvars" "-var-file=confi
 with the workflow's additional noninteractive and locking flags. Apply consumes that saved plan rather than reloading different profiles.
 Concurrent deployments are serialized and running applies are not cancelled by newer pushes.
 Azure Blob leases provide state locking, including protection from other Terraform clients.
-Normal runs block plans that delete or replace any resource; the manual retired-policy cleanup is the only narrowly scoped exception.
+Normal runs block plans that delete or replace any resource, and the guard also fails closed on an unreadable or incomplete plan.
 Intentional destructive changes require a separately reviewed process rather than bypassing the guard casually.
 Plans stay on the runner and are deleted at the end of the job, not uploaded as artifacts.
 

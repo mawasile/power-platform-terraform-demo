@@ -20,11 +20,6 @@ on:
         type: boolean
         required: true
         default: false
-      delete_demo_dlp:
-        description: Delete only the three retired demo DLP policies (requires apply)
-        type: boolean
-        required: true
-        default: false
 
 permissions:
   contents: read
@@ -109,14 +104,7 @@ jobs:
           terraform_wrapper: false
 
       - name: Check deployment settings
-        env:
-          CLEANUP_REQUESTED: ${{ inputs.delete_demo_dlp == true }}
-          APPLY_REQUESTED: ${{ inputs.apply == true }}
         run: |
-          if [[ "$CLEANUP_REQUESTED" == "true" && "$APPLY_REQUESTED" != "true" ]]; then
-            echo "::error::Demo DLP deletion requires explicit apply confirmation."
-            exit 1
-          fi
           for name in ARM_CLIENT_ID ARM_TENANT_ID TF_STATE_STORAGE_ACCOUNT TF_STATE_CONTAINER; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Missing $name. See infra/README.md for repository setup."
@@ -140,8 +128,6 @@ jobs:
         run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
 
       - name: Block deletions and replacements
-        env:
-          ALLOW_DEMO_DLP_DELETION: ${{ github.event_name == 'workflow_dispatch' && inputs.apply == true && inputs.delete_demo_dlp == true }}
         run: |
           # Pipefail also blocks apply if Terraform cannot produce the plan JSON.
           terraform show -json deployment.tfplan | node ../.github/scripts/check-terraform-plan.mjs
