@@ -8,9 +8,11 @@ resource "powerplatform_managed_environment" "environments" {
   max_limit_user_sharing                             = each.value.max_limit_user_sharing
   solution_checker_mode                              = each.value.solution_checker_mode
   suppress_validation_emails                         = each.value.suppress_validation_emails
-  solution_checker_rule_overrides                    = []
   power_automate_is_sharing_disabled                 = each.value.power_automate_is_sharing_disabled
   copilot_allow_grant_editor_permissions_when_shared = each.value.copilot_allow_grant_editor_permissions_when_shared
   copilot_limit_sharing_mode                         = each.value.copilot_limit_sharing_mode
   copilot_max_limit_user_sharing                     = each.value.copilot_max_limit_user_sharing
+
+  # solution_checker_rule_overrides is omitted: provider 4.2.0 returns null for an
+  # empty set, which fails apply with an inconsistent-result error.
 }

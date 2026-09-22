@@ -57,7 +57,6 @@ run "committed_configuration" {
       toset(keys(module.power_platform.managed_environments)) == toset(["test", "prod"]) &&
       module.power_platform.managed_environments["test"].solution_checker_mode == "Warn" &&
       module.power_platform.managed_environments["prod"].solution_checker_mode == "Block" &&
-      length(module.power_platform.managed_environments["prod"].solution_checker_rule_overrides) == 0 &&
       module.power_platform.managed_environments["test"].max_limit_user_sharing == 20 &&
       module.power_platform.managed_environments["prod"].max_limit_user_sharing == 5 &&
       !module.power_platform.managed_environments["test"].power_automate_is_sharing_disabled &&

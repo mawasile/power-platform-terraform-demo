@@ -141,7 +141,7 @@ Dev omits this setting and keeps whatever the environment already blocks. Test a
 
 * Test disables canvas-app sharing to security groups and caps individual sharing at 20 users. Solution checker uses `Warn`; flow sharing and agent editor grants remain allowed. Agent viewer sharing excludes security groups and is capped at 20 users.
 * Prod disables canvas-app sharing to security groups and caps individual sharing at 5 users. Solution checker uses `Block`; flow sharing, agent viewer sharing, and agent editor grants are blocked. The inactive agent viewer cap is `-1`.
-* Both profiles disable usage insights and leave validation emails unsuppressed. The solution-checker rule-override/exclusion set is empty, so no rules are excluded by this configuration.
+* Both profiles disable usage insights and leave validation emails unsuppressed. Solution-checker rule exclusions are not managed here, so this configuration excludes no rules and leaves any existing exclusions in place.
 * Dev has `managed_environment = null`, so this configuration does not manage those controls for dev. This does not prove an existing dev environment is unmanaged outside Terraform.
 
 Root validation requires every Production environment to have auditing, user-access auditing, blocked attachment extensions,
