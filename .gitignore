@@ -12,6 +12,7 @@ crash.*.log
 !/infra/infrastructure.tfvars
 !/infra/config/azure.tfvars
 !/infra/config/environments.tfvars
+!/infra/config/solutions.tfvars
 !/infra/config/tenant.tfvars
 
 # GitHub injects deployment credentials; never commit local environment files.

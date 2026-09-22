@@ -103,4 +103,23 @@ run "committed_configuration" {
     condition     = output.tenant_settings_id != null && output.tenant_settings_id == module.tenant.tenant_settings_id
     error_message = "The tenant baseline must remain managed by the separate tenant module."
   }
+
+  assert {
+    condition = (
+      toset(keys(module.solutions.deployments)) == toset(["TerrraformExampleSolution/test", "TerrraformExampleSolution/prod"]) &&
+      module.solutions.deployments["TerrraformExampleSolution/test"].environment_id == output.environment_ids["test"] &&
+      module.solutions.deployments["TerrraformExampleSolution/prod"].environment_id == output.environment_ids["prod"] &&
+      module.solutions.deployments["TerrraformExampleSolution/prod"].version == "1.0.0.2"
+    )
+    error_message = "The committed solution must import into test and prod, and never into dev."
+  }
+
+  assert {
+    condition = (
+      module.solutions.environment_variable_values["TerrraformExampleSolution/test/bal_MagicNumber"].value == "42" &&
+      module.solutions.environment_variable_values["TerrraformExampleSolution/prod/bal_MagicNumber"].value == "7" &&
+      module.solutions.environment_variable_values["TerrraformExampleSolution/prod/bal_MagicNumber"].environment_id == output.environment_ids["prod"]
+    )
+    error_message = "Each environment must receive its own Magic Number value."
+  }
 }

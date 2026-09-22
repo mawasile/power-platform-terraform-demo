@@ -11,6 +11,9 @@ variables {
   # Ignore the committed access groups so runs may redefine the environment set.
   environment_access_groups = {}
 
+  # Solution imports target environment keys; keep them out of environment runs.
+  solutions = {}
+
   environments = {
     dev = {
       display_name     = "Demo - Dev"
@@ -283,6 +286,71 @@ run "reject_unknown_access_group_key" {
   }
 
   expect_failures = [var.environment_access_groups]
+}
+
+run "reject_solution_in_dev" {
+  command = plan
+
+  variables {
+    solutions = {
+      SampleSolution = {
+        version      = "1.0.0.2"
+        file         = "solutions/SampleSolution_managed.zip"
+        environments = ["dev", "test"]
+      }
+    }
+  }
+
+  expect_failures = [var.solutions]
+}
+
+run "reject_solution_for_unknown_environment" {
+  command = plan
+
+  variables {
+    solutions = {
+      SampleSolution = {
+        version      = "1.0.0.2"
+        file         = "solutions/SampleSolution_managed.zip"
+        environments = ["staging"]
+      }
+    }
+  }
+
+  expect_failures = [var.solutions]
+}
+
+run "reject_solution_without_environments" {
+  command = plan
+
+  variables {
+    solutions = {
+      SampleSolution = {
+        version      = "1.0.0.2"
+        file         = "solutions/SampleSolution_managed.zip"
+        environments = []
+      }
+    }
+  }
+
+  expect_failures = [var.solutions]
+}
+
+run "reject_values_for_untargeted_environment" {
+  command = plan
+
+  variables {
+    solutions = {
+      SampleSolution = {
+        version               = "1.0.0.2"
+        file                  = "solutions/SampleSolution_managed.zip"
+        environments          = ["test"]
+        environment_variables = { prod = { bal_MagicNumber = "7" } }
+      }
+    }
+  }
+
+  expect_failures = [var.solutions]
 }
 
 run "per_environment_provisioning_overrides" {

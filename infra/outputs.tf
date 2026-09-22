@@ -17,3 +17,8 @@ output "tenant_settings_id" {
   description = "Tenant ID whose governance settings are managed, or null if disabled."
   value       = module.tenant.tenant_settings_id
 }
+
+output "solution_ids" {
+  description = "Imported managed solution IDs, keyed by solution and environment."
+  value       = module.solutions.solution_ids
+}

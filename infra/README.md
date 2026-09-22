@@ -12,11 +12,12 @@ The module refactor preserves the existing backend and OIDC configuration; modul
 * `tenant.tf` connects `module.tenant` to `./modules/power-platform/tenant` and declares the tenant-settings state move.
 * `variables.tf` defines shared defaults and environment inputs; `azure.variables.tf` defines the Entra group input and `tenant.variables.tf` defines the separate tenant input.
 * `providers.tf` configures OIDC authentication and provider version constraints.
-* `infrastructure.tfvars` contains shared provisioning defaults, `config/azure.tfvars` configures the Microsoft Entra access groups, `config/environments.tfvars` contains the environment profiles, and `config/tenant.tfvars` configures the tenant singleton.
+* `infrastructure.tfvars` contains shared provisioning defaults, `config/azure.tfvars` configures the Microsoft Entra access groups, `config/environments.tfvars` contains the environment profiles, `config/solutions.tfvars` lists the managed solutions to import, and `config/tenant.tfvars` configures the tenant singleton.
 * `backend.tf` configures Azure Blob remote state with Entra authentication and locking.
 * `modules/azure` creates one Microsoft Entra security group per environment using `hashicorp/azuread`.
 * `modules/power-platform/environments/main.tf` provisions environments using `microsoft/power-platform`; `settings.tf` manages `powerplatform_environment_settings` for auditing, email upload limits, and blocked attachments, and `managed-environments.tf` manages sharing and solution-checker controls.
 * `modules/power-platform/tenant` owns the selected tenant-wide governance switches separately from environment provisioning.
+* `modules/power-platform/solutions` imports managed solution packages with `powerplatform_managed_solution` and sets their environment variable values.
 * `tests/environments.tftest.hcl` covers environment provisioning and controls with mocked providers.
 * `tests/deployment.tftest.hcl` checks the committed four-file configuration with a mocked apply, including generated ID wiring.
 * `tests/environment-settings.tftest.hcl` tests the reusable environment module's settings and sharing validation independently of the production policy.
@@ -28,17 +29,50 @@ The `azurerm` backend is built into Terraform and is separate from the AzureRM p
 
 ## Infrastructure values in Git
 
-Treat these four committed, non-secret files as infrastructure code, not generated files or GitHub secrets:
+Treat these five committed, non-secret files as infrastructure code, not generated files or GitHub secrets:
 
 * `infrastructure.tfvars` defines shared location, macro-region, Dataverse, language, and currency defaults.
 * `config/azure.tfvars` defines the Microsoft Entra access groups: their names, owners, and members.
 * `config/environments.tfvars` defines the Power Platform profiles, including names, types, environment settings, and Managed Environment controls.
+* `config/solutions.tfvars` defines which managed solution packages are imported, into which environments, and with which environment variable values.
 * `config/tenant.tfvars` configures the tenant-settings singleton once, not once per environment.
 
-Terraform does not auto-load these filenames. The workflow passes all four files explicitly to both `test` and `plan`.
+Terraform does not auto-load these filenames. The workflow passes all five files explicitly to both `test` and `plan`.
 Change values through reviewed pull requests. Do not generate extra tfvars files in the workflow or duplicate these values in repository variables.
-The `.gitignore` allowlist names exactly these four paths while excluding other tfvars, state, saved plans, and `.terraform` downloads.
+The `.gitignore` allowlist names exactly these five paths while excluding other tfvars, state, saved plans, and `.terraform` downloads.
 Never put tokens, passwords, or client secrets in the committed files.
+
+## Solution deployment
+
+`config/solutions.tfvars` promotes managed solution packages out of dev. Each entry is keyed by the solution unique name
+from the package and lists the environments that receive it:
+
+```hcl
+TerrraformExampleSolution = {
+  version      = "1.0.0.2"
+  file         = "solutions/TerrraformExampleSolution_managed.zip"
+  environments = ["test", "prod"]
+  environment_variables = {
+    test = { bal_MagicNumber = "42" }
+    prod = { bal_MagicNumber = "7" }
+  }
+}
+```
+
+The `unique_name` key and `version` must match the package metadata exactly, because the provider treats that identity as the
+deployment trigger rather than a file checksum. Replacing the zip alone changes nothing; raise `version` in the same commit.
+File paths are repository relative, and a missing package fails the plan rather than the apply.
+Exporting a new version through the [solution export workflow](../.github/workflows/solution-export.yml) covers the unmanaged
+source in `solutions/`; the managed package for deployment is a separate artifact.
+
+Imports target downstream environments only. Deploying a managed solution into dev would layer it over the unmanaged source,
+so the configuration rejects `dev` as a target. Environment variable values may only target environments that receive the solution.
+Definitions ship inside the package, so values are applied after the import through `powerplatform_environment_variable_value`.
+A definition with no value stays valid until a consumer needs one, and values are treated as sensitive because a definition may be a secret.
+
+> [!IMPORTANT]
+> Production enforces solution checker `Block`, so a package with critical findings fails to import there.
+> Validate in test first, and expect a higher version to upgrade through Dataverse stage-and-upgrade, which removes omitted components.
 
 The root accepts any number of environments, keyed by a short lowercase name such as `dev` or `uat-eu`.
 The committed demo defines `dev`, `test`, and `prod`. A key is a resource identity: renaming a deployed key replaces that environment.
@@ -291,8 +325,8 @@ The [Terraform infrastructure workflow](../.github/workflows/terraform.yml) runs
 4. Manual runs can instead select `destroy` to plan a teardown. See the teardown section below.
 
 Configure OIDC, repository settings, and backend storage before pushing to `main` for the first deployment.
-Deployment uses the committed lockfile and all four tfvars files; it never runs `terraform init -upgrade`.
-Both mocked tests and the deployment plan load `infrastructure.tfvars`, `config/azure.tfvars`, `config/environments.tfvars`, and `config/tenant.tfvars`.
+Deployment uses the committed lockfile and all five tfvars files; it never runs `terraform init -upgrade`.
+Both mocked tests and the deployment plan load `infrastructure.tfvars`, `config/azure.tfvars`, `config/environments.tfvars`, `config/solutions.tfvars`, and `config/tenant.tfvars`.
 Apply consumes the saved plan rather than reloading different profiles.
 Concurrent deployments are serialized and running applies are not cancelled by newer pushes.
 Azure Blob leases provide state locking, including protection from other Terraform clients.
@@ -324,7 +358,7 @@ If resources exist but are not tracked in this state, coordinate their migration
 ## Local checks without cloud access
 
 From `infra`, run `terraform init -backend=false -lockfile=readonly`, `terraform fmt -check -recursive`,
-`terraform validate`, and `terraform test "-var-file=infrastructure.tfvars" "-var-file=config/azure.tfvars" "-var-file=config/environments.tfvars" "-var-file=config/tenant.tfvars"`.
+`terraform validate`, and `terraform test "-var-file=infrastructure.tfvars" "-var-file=config/azure.tfvars" "-var-file=config/environments.tfvars" "-var-file=config/solutions.tfvars" "-var-file=config/tenant.tfvars"`.
 Both providers are mocked during tests. Quote each complete `-var-file=...` argument in PowerShell.
 Plain `terraform test` does not load these deployment files and reports missing required variables.
 Mock tests do not verify licenses, capacity, live permissions, or service-side enforcement.

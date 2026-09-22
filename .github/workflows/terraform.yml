@@ -72,7 +72,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Run mocked tests
-        run: terraform test -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -no-color
+        run: terraform test -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/solutions.tfvars -var-file=config/tenant.tfvars -no-color
 
       - name: Test plan safety guard
         run: node --test ../.github/scripts/check-terraform-plan.test.mjs
@@ -131,6 +131,7 @@ jobs:
           test -f infrastructure.tfvars
           test -f config/azure.tfvars
           test -f config/environments.tfvars
+          test -f config/solutions.tfvars
           test -f config/tenant.tfvars
 
       - name: Initialize remote state with OIDC
@@ -144,7 +145,7 @@ jobs:
 
       - name: Plan committed infrastructure
         if: inputs.destroy != true
-        run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
+        run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/solutions.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
 
       # Targets exclude module.tenant: its settings are protected by prevent_destroy
       # and removing them would restore pre-management values tenant-wide.
@@ -155,7 +156,9 @@ jobs:
             -var-file=infrastructure.tfvars \
             -var-file=config/azure.tfvars \
             -var-file=config/environments.tfvars \
+            -var-file=config/solutions.tfvars \
             -var-file=config/tenant.tfvars \
+            -target=module.solutions \
             -target=module.power_platform \
             -target=module.azure \
             -out=deployment.tfplan
