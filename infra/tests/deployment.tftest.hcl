@@ -1,6 +1,13 @@
-# No variable overrides: validate all three committed configuration files offline.
-# Pass infrastructure.tfvars, config/environments.tfvars, and config/tenant.tfvars.
-mock_provider "powerplatform" {}
+# No variable overrides: validate the committed configuration files offline.
+# Assertions derive expected keys from var.environments/var.solutions, so adding
+# an environment or another solution target never requires editing this file.
+mock_provider "powerplatform" {
+  # A shared static GUID keeps environment_id attributes format-valid for any
+  # number of committed environments; no assertion here relies on ID uniqueness.
+  mock_resource "powerplatform_environment" {
+    defaults = { id = "cccccccc-cccc-cccc-cccc-cccccccccccc" }
+  }
+}
 
 mock_provider "azuread" {
   mock_data "azuread_client_config" {
@@ -8,36 +15,10 @@ mock_provider "azuread" {
       object_id = "11111111-1111-1111-1111-111111111111"
     }
   }
-}
 
-override_resource {
-  target = module.azure.azuread_group.environment_access["dev"]
-  values = { object_id = "22222222-2222-2222-2222-222222222222" }
-}
-
-override_resource {
-  target = module.azure.azuread_group.environment_access["test"]
-  values = { object_id = "33333333-3333-3333-3333-333333333333" }
-}
-
-override_resource {
-  target = module.azure.azuread_group.environment_access["prod"]
-  values = { object_id = "44444444-4444-4444-4444-444444444444" }
-}
-
-override_resource {
-  target = module.power_platform.powerplatform_environment.environments["dev"]
-  values = { id = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" }
-}
-
-override_resource {
-  target = module.power_platform.powerplatform_environment.environments["test"]
-  values = { id = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" }
-}
-
-override_resource {
-  target = module.power_platform.powerplatform_environment.environments["prod"]
-  values = { id = "cccccccc-cccc-cccc-cccc-cccccccccccc" }
+  mock_resource "azuread_group" {
+    defaults = { object_id = "22222222-2222-2222-2222-222222222222" }
+  }
 }
 
 run "committed_configuration" {
@@ -46,15 +27,17 @@ run "committed_configuration" {
 
   assert {
     condition = (
-      length(output.environment_ids) == 3 &&
+      toset(keys(output.environment_ids)) == toset(keys(var.environments)) &&
       toset(keys(output.environment_ids)) == toset(keys(output.security_group_ids))
     )
-    error_message = "The committed configuration must plan three environments with matching security groups."
+    error_message = "Every committed environment must plan with a matching security group."
   }
 
   assert {
     condition = (
-      toset(keys(module.power_platform.managed_environments)) == toset(["test", "prod"]) &&
+      toset(keys(module.power_platform.managed_environments)) == toset([
+        for name, environment in var.environments : name if environment.managed_environment != null
+      ]) &&
       module.power_platform.managed_environments["test"].solution_checker_mode == "Warn" &&
       module.power_platform.managed_environments["prod"].solution_checker_mode == "Block" &&
       module.power_platform.managed_environments["test"].max_limit_user_sharing == 20 &&
@@ -64,7 +47,7 @@ run "committed_configuration" {
       !module.power_platform.managed_environments["prod"].copilot_allow_grant_editor_permissions_when_shared &&
       module.power_platform.managed_environments["prod"].copilot_limit_sharing_mode == "DisableSharing"
     )
-    error_message = "Production must enforce stronger sharing and solution-checker controls than test; dev must not be managed."
+    error_message = "Production must enforce stronger sharing and solution-checker controls than test; only the configured environments are managed."
   }
 
   assert {
@@ -106,20 +89,30 @@ run "committed_configuration" {
 
   assert {
     condition = (
-      toset(keys(module.solutions.deployments)) == toset(["TerrraformExampleSolution/test", "TerrraformExampleSolution/prod"]) &&
-      module.solutions.deployments["TerrraformExampleSolution/test"].environment_id == output.environment_ids["test"] &&
-      module.solutions.deployments["TerrraformExampleSolution/prod"].environment_id == output.environment_ids["prod"] &&
-      module.solutions.deployments["TerrraformExampleSolution/prod"].version == "1.0.0.2"
+      toset(keys(module.solutions.deployments)) == toset(flatten([
+        for name, solution in var.solutions : [for environment in solution.environments : "${name}/${environment}"]
+      ])) &&
+      alltrue(flatten([
+        for name, solution in var.solutions : [
+          for environment in solution.environments :
+          module.solutions.deployments["${name}/${environment}"].environment_id == output.environment_ids[environment] &&
+          module.solutions.deployments["${name}/${environment}"].version == solution.version
+        ]
+      ]))
     )
-    error_message = "The committed solution must import into test and prod, and never into dev."
+    error_message = "Every configured solution must import into exactly its configured environments, at its configured version."
   }
 
   assert {
-    condition = (
-      module.solutions.environment_variable_values["TerrraformExampleSolution/test/bal_MagicNumber"].value == "42" &&
-      module.solutions.environment_variable_values["TerrraformExampleSolution/prod/bal_MagicNumber"].value == "7" &&
-      module.solutions.environment_variable_values["TerrraformExampleSolution/prod/bal_MagicNumber"].environment_id == output.environment_ids["prod"]
-    )
-    error_message = "Each environment must receive its own Magic Number value."
+    condition = alltrue(flatten([
+      for name, solution in var.solutions : [
+        for environment, variables in solution.environment_variables : [
+          for schema_name, value in variables :
+          module.solutions.environment_variable_values["${name}/${environment}/${schema_name}"].value == value &&
+          module.solutions.environment_variable_values["${name}/${environment}/${schema_name}"].environment_id == output.environment_ids[environment]
+        ]
+      ]
+    ]))
+    error_message = "Every configured environment variable value must match its tfvars value and its own environment."
   }
 }
