@@ -36,6 +36,10 @@ test('malformed and incomplete plans fail closed', () => {
   }
 });
 
+test('a destroy run tolerates the incomplete flag set by -target', () => {
+  assert.equal(checkPlan({ ...plan([change(['delete'])]), complete: false }, true), 1);
+});
+
 const script = fileURLToPath(new URL('./check-terraform-plan.mjs', import.meta.url));
 const run = (input, env = {}) => spawnSync(process.execPath, [script], { input, encoding: 'utf8', env: { ...process.env, ...env } });
 
@@ -53,6 +57,7 @@ test('destroy runs still block creates, updates, and replacements', () => {
 test('destroy runs still fail closed on malformed plans', () => {
   assert.throws(() => checkPlan({}, true), /Invalid or incomplete/);
   assert.throws(() => checkPlan(plan([change(['forget'])]), true), /Unknown/);
+  assert.throws(() => checkPlan({ ...plan(), errored: true }, true), /Invalid or incomplete/);
 });
 
 test('CLI consumes stdin and reports the guard result', () => {

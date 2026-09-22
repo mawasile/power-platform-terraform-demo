@@ -6,8 +6,11 @@ const SAFE_ACTIONS = ['no-op', 'read', 'create', 'update'];
 const KNOWN_ACTIONS = [...SAFE_ACTIONS, 'delete', 'create,delete', 'delete,create'];
 
 export function checkPlan(plan, destroyRequested = false) {
+  // Destroy runs deliberately target module.solutions/power_platform/azure to
+  // protect module.tenant, which makes Terraform mark the plan incomplete.
   if (!plan || !/^1\./.test(plan.format_version ?? '') ||
-      !plan.planned_values || plan.errored || plan.complete === false ||
+      !plan.planned_values || plan.errored ||
+      (!destroyRequested && plan.complete === false) ||
       !Array.isArray(plan.resource_changes ?? [])) {
     throw new Error('Invalid or incomplete Terraform plan; apply is blocked.');
   }
