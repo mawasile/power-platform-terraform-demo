@@ -15,5 +15,5 @@ output "security_group_ids" {
 
 output "tenant_settings_id" {
   description = "Tenant ID whose governance settings are managed, or null if disabled."
-  value       = module.power_platform.tenant_settings_id
+  value       = module.tenant.tenant_settings_id
 }

@@ -20,6 +20,27 @@ variables {
     prod = {
       display_name     = "Demo - Prod"
       environment_type = "Production"
+      settings = {
+        audit = {
+          plugin_trace_log_setting     = "Off"
+          is_audit_enabled             = true
+          is_user_access_audit_enabled = true
+          is_read_audit_enabled        = false
+          log_retention_period_in_days = 365
+        }
+        max_upload_file_size_in_bytes = 5242880
+        blocked_attachment_extensions = ["exe", "ps1"]
+      }
+      managed_environment = {
+        is_group_sharing_disabled                          = true
+        limit_sharing_mode                                 = "ExcludeSharingToSecurityGroups"
+        max_limit_user_sharing                             = 5
+        solution_checker_mode                              = "Block"
+        power_automate_is_sharing_disabled                 = true
+        copilot_allow_grant_editor_permissions_when_shared = false
+        copilot_limit_sharing_mode                         = "DisableSharing"
+        copilot_max_limit_user_sharing                     = -1
+      }
     }
   }
 }
@@ -111,11 +132,13 @@ run "three_default_environments" {
   }
 }
 
-run "without_dataverse" {
+run "without_dataverse_in_dev" {
   command = plan
 
   variables {
-    enable_dataverse = false
+    environments = merge(var.environments, {
+      dev = merge(var.environments.dev, { enable_dataverse = false })
+    })
   }
 
   # The provider computes the omitted Dataverse attribute only after a real apply.
@@ -131,8 +154,13 @@ run "without_dataverse" {
   }
 
   assert {
-    condition     = alltrue([for url in values(output.environment_urls) : url == null])
-    error_message = "Environment URLs must be null when Dataverse is disabled."
+    condition     = output.environment_urls["dev"] == null
+    error_message = "Dev must expose no URL when its Dataverse is disabled."
+  }
+
+  assert {
+    condition     = module.power_platform.environments["prod"].dataverse.currency_code == "EUR"
+    error_message = "Disabling dev Dataverse must not disable prod Dataverse."
   }
 }
 
@@ -151,13 +179,41 @@ run "macro_region_provisioning" {
   }
 }
 
-run "reject_wrong_environment_count" {
+run "single_environment" {
   command = plan
 
   variables {
     environments = {
       dev = {
         display_name     = "Only one environment"
+        environment_type = "Sandbox"
+      }
+    }
+  }
+
+  assert {
+    condition     = length(output.environment_ids) == 1 && length(output.security_group_ids) == 1
+    error_message = "The environment count must not be fixed at three."
+  }
+}
+
+run "reject_no_environments" {
+  command = plan
+
+  variables {
+    environments = {}
+  }
+
+  expect_failures = [var.environments]
+}
+
+run "reject_invalid_environment_key" {
+  command = plan
+
+  variables {
+    environments = {
+      "Dev EU" = {
+        display_name     = "Invalid key"
         environment_type = "Sandbox"
       }
     }
@@ -182,10 +238,7 @@ run "custom_group_configuration" {
         display_name     = "Demo - Test"
         environment_type = "Sandbox"
       }
-      prod = {
-        display_name     = "Demo - Prod"
-        environment_type = "Production"
-      }
+      prod = var.environments.prod
     }
   }
 
@@ -218,12 +271,202 @@ run "reject_invalid_member_id" {
         display_name     = "Demo - Test"
         environment_type = "Sandbox"
       }
-      prod = {
-        display_name     = "Demo - Prod"
-        environment_type = "Production"
-      }
+      prod = var.environments.prod
     }
   }
 
+  expect_failures = [var.environments]
+}
+
+run "per_environment_provisioning_overrides" {
+  command = plan
+
+  variables {
+    environments = merge(var.environments, {
+      dev = merge(var.environments.dev, {
+        location      = "unitedstates"
+        currency_code = "USD"
+        language_code = 1031
+      })
+      test = merge(var.environments.test, { macro_region = "eu-efta" })
+    })
+  }
+
+  assert {
+    condition = (
+      module.power_platform.environments["dev"].location == "unitedstates" &&
+      module.power_platform.environments["dev"].dataverse.currency_code == "USD" &&
+      module.power_platform.environments["dev"].dataverse.language_code == 1031 &&
+      module.power_platform.environments["test"].macro_region == "eu-efta" &&
+      module.power_platform.environments["prod"].location == "europe" &&
+      module.power_platform.environments["prod"].dataverse.currency_code == "EUR" &&
+      module.power_platform.environments["prod"].dataverse.language_code == 1033
+    )
+    error_message = "Each environment must use only its own overrides, with shared defaults elsewhere."
+  }
+}
+
+run "additional_environment" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      "uat-eu" = {
+        display_name     = "Demo - UAT"
+        environment_type = "Sandbox"
+      }
+    })
+  }
+
+  assert {
+    condition = (
+      length(output.environment_ids) == 4 &&
+      length(output.security_group_ids) == 4 &&
+      module.power_platform.environments["uat-eu"].environment_type == "Sandbox" &&
+      module.azure.security_groups["uat-eu"].display_name == "Demo - UAT - Users"
+    )
+    error_message = "Adding an environment key must create that environment and its access group."
+  }
+
+  assert {
+    condition     = toset(keys(module.power_platform.managed_environments)) == toset(["prod"])
+    error_message = "A new Sandbox environment must not require premium Managed Environment controls."
+  }
+}
+
+run "reject_weak_additional_production" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      "prod-eu" = {
+        display_name     = "Demo - Prod EU"
+        environment_type = "Production"
+      }
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "additional_production_with_strict_baseline" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      "prod-eu" = merge(var.environments.prod, { display_name = "Demo - Prod EU" })
+    })
+  }
+
+  assert {
+    condition = (
+      module.power_platform.managed_environments["prod-eu"].solution_checker_mode == "Block" &&
+      module.power_platform.environment_settings["prod-eu"].audit_and_logs.audit_settings.is_user_access_audit_enabled
+    )
+    error_message = "A second Production environment must carry the same strict baseline."
+  }
+}
+
+run "reject_unmanaged_production" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, { managed_environment = null })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_auditing_disabled" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        settings = merge(var.environments.prod.settings, { audit = null })
+      })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_without_blocked_attachments" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        settings = merge(var.environments.prod.settings, { blocked_attachment_extensions = null })
+      })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_warning_only_checker" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        managed_environment = merge(var.environments.prod.managed_environment, { solution_checker_mode = "Warn" })
+      })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_broad_sharing" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        managed_environment = merge(var.environments.prod.managed_environment, { max_limit_user_sharing = 20 })
+      })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_access_logging_disabled" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        settings = merge(var.environments.prod.settings, {
+          audit = merge(var.environments.prod.settings.audit, { is_user_access_audit_enabled = false })
+        })
+      })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_flow_sharing" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        managed_environment = merge(var.environments.prod.managed_environment, { power_automate_is_sharing_disabled = false })
+      })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_agent_editor_sharing" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        managed_environment = merge(var.environments.prod.managed_environment, { copilot_allow_grant_editor_permissions_when_shared = true })
+      })
+    })
+  }
+  expect_failures = [var.environments]
+}
+
+run "reject_production_agent_viewer_sharing" {
+  command = plan
+  variables {
+    environments = merge(var.environments, {
+      prod = merge(var.environments.prod, {
+        managed_environment = merge(var.environments.prod.managed_environment, { copilot_limit_sharing_mode = "NoLimit" })
+      })
+    })
+  }
   expect_failures = [var.environments]
 }

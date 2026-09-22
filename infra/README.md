@@ -1,22 +1,26 @@
 ---
 title: Power Platform and Azure infrastructure
-description: Terraform modules for three Power Platform environments and their Microsoft Entra access groups.
+description: Shared-state Terraform modules for Power Platform environments, Microsoft Entra access groups, and environment and tenant governance.
 ---
 
 ## Structure
 
-Run Terraform from `infra`, the single root module and state boundary.
+Run Terraform from `infra`, the single root module and state boundary for dev, test, prod, and tenant governance.
+The module refactor preserves the existing backend and OIDC configuration; module folders are not separate deployment roots.
 
-* `main.tf` connects the Azure and Power Platform modules.
+* `main.tf` keeps `module.azure` unchanged and connects `module.power_platform` to `./modules/power-platform/environments`. The legacy module label preserves environment state addresses.
+* `tenant.tf` connects `module.tenant` to `./modules/power-platform/tenant` and declares the tenant-settings state move.
+* `variables.tf` defines shared defaults and environment inputs; `tenant.variables.tf` defines the separate tenant input.
 * `providers.tf` configures OIDC authentication and provider version constraints.
-* `infrastructure.tfvars` contains the committed, non-secret infrastructure values.
+* `infrastructure.tfvars` contains shared provisioning defaults, `config/environments.tfvars` contains the environment profiles, and `config/tenant.tfvars` configures the tenant singleton.
 * `backend.tf` configures Azure Blob remote state with Entra authentication and locking.
 * `modules/azure` creates one Microsoft Entra security group per environment using `hashicorp/azuread`.
-* `modules/power-platform` creates the Power Platform environments using `microsoft/power-platform`.
-* `modules/power-platform/tenant-settings.tf` manages the selected tenant-wide governance switches.
-* `tests/environments.tftest.hcl` tests both modules with mocked providers.
-* `tests/deployment.tftest.hcl` checks the actual committed tfvars with a mocked plan.
-* `tests/governance.tftest.hcl` tests the tenant-settings baseline, opt-out, and explicit setting overrides.
+* `modules/power-platform/environments/main.tf` provisions environments using `microsoft/power-platform`; `settings.tf` manages `powerplatform_environment_settings` for auditing, email upload limits, and blocked attachments, and `managed-environments.tf` manages sharing and solution-checker controls.
+* `modules/power-platform/tenant` owns the selected tenant-wide governance switches separately from environment provisioning.
+* `tests/environments.tftest.hcl` covers environment provisioning and controls with mocked providers.
+* `tests/deployment.tftest.hcl` checks the committed three-file configuration with a mocked apply, including generated ID wiring.
+* `tests/environment-settings.tftest.hcl` tests the reusable environment module's settings and sharing validation independently of the production policy.
+* `tests/governance.tftest.hcl` covers tenant governance. The expanded tests exercise profiles, overrides, and validation failures without cloud access.
 
 Security groups belong to Microsoft Entra, not an Azure subscription or resource group.
 The state storage account requires an Azure subscription, but these modules do not need an `azurerm` provider.
@@ -24,15 +28,62 @@ The `azurerm` backend is built into Terraform and is separate from the AzureRM p
 
 ## Infrastructure values in Git
 
-Treat `infrastructure.tfvars` as infrastructure code, not a generated file or GitHub secret.
-It defines Dev and Test (Sandbox) and Prod (Production), their group names and membership, the region, and Dataverse settings.
-Terraform does not auto-load this filename. The workflow passes `-var-file=infrastructure.tfvars` explicitly to both `test` and `plan`.
-Change these values through reviewed pull requests. Do not generate another tfvars file in the workflow or duplicate these values in repository variables.
+Treat these three committed, non-secret files as infrastructure code, not generated files or GitHub secrets:
 
-`variables.tf` defines the input types and validation; deployment values live in `infrastructure.tfvars`.
-Module tests supply their own fixtures; a separate deployment test checks the committed tfvars without cloud access.
-The ignore rules allow this one tfvars file while excluding other tfvars, state, saved plans, and `.terraform` downloads.
-Never put tokens, passwords, or client secrets in the committed file.
+* `infrastructure.tfvars` defines shared location, macro-region, Dataverse, language, and currency defaults.
+* `config/environments.tfvars` defines the environment profiles, including names, types, group membership, environment settings, and Managed Environment controls.
+* `config/tenant.tfvars` configures the tenant-settings singleton once, not once per environment.
+
+Terraform does not auto-load these filenames. The workflow passes all three files explicitly to both `test` and `plan`.
+Change values through reviewed pull requests. Do not generate extra tfvars files in the workflow or duplicate these values in repository variables.
+The `.gitignore` allowlist names exactly these three paths while excluding other tfvars, state, saved plans, and `.terraform` downloads.
+Never put tokens, passwords, or client secrets in the committed files.
+
+The root accepts any number of environments, keyed by a short lowercase name such as `dev` or `uat-eu`.
+The committed demo defines `dev`, `test`, and `prod`. A key is a resource identity: renaming a deployed key replaces that environment.
+Keep every profile in each invocation against this shared state.
+Do not invoke a dev-only, test-only, or prod-only file as an isolated deployment against it.
+Terraform replaces repeated map variable values; it does not deep-merge them across files.
+A later `environments` assignment replaces the entire earlier map rather than adding or patching one profile.
+
+### Adding an environment
+
+Add another entry to `config/environments.tfvars` with a new key, then review the plan:
+
+```hcl
+"uat-eu" = {
+  display_name                = "Demo - UAT"
+  environment_type            = "Sandbox"
+  security_group_display_name = "Demo - UAT - Users"
+  settings = {
+    audit = {
+      plugin_trace_log_setting     = "Exception"
+      is_audit_enabled             = true
+      is_user_access_audit_enabled = false
+      is_read_audit_enabled        = false
+      log_retention_period_in_days = 31
+    }
+  }
+  managed_environment = null
+}
+```
+
+Terraform then creates that environment and its own Entra access group, leaving existing environments untouched.
+The strict baseline follows `environment_type`, not the key name: every `Production` environment must satisfy it,
+while `Sandbox` environments may omit Managed Environment controls. Downgrading a deployed environment to `Sandbox`
+would bypass those rules, but it also forces replacement, which the workflow's deletion guard blocks.
+A new environment consumes tenant capacity and, for Managed Environments, premium licensing.
+
+Each environment can override `location`, `macro_region`, `enable_dataverse`, `language_code`, and `currency_code`.
+Omitted or null overrides inherit the shared defaults. In particular, `macro_region = null` inherits the global macro-region;
+it cannot clear that value to select a location instead. An effective macro-region takes precedence over location.
+Configuring environment settings or Managed Environment controls requires Dataverse for that environment.
+Location, language, and currency are provisioning choices; changing them on existing environments can require replacement or be unsupported.
+Review the plan rather than treating these overrides as runtime preferences.
+
+Module tests supply their own fixtures; the deployment test checks the committed profiles without cloud access.
+
+### Environment access groups
 
 Each entry in `environments` supports these group settings:
 
@@ -50,11 +101,76 @@ These references make environment creation depend on group creation.
 
 Terraform manages the full membership list. Members added only through the portal will be removed by a subsequent apply.
 Do not also manage the same group's members using separate `azuread_group_member` resources.
-When `enable_dataverse` is false, groups are still created but are not attached to the environments by this configuration.
+When an environment's effective `enable_dataverse` is false, its group is still created but is not attached by this configuration.
+Its `settings` and `managed_environment` configurations must also be null.
+
+## Environment governance
+
+The profiles intentionally make prod stricter than dev and test. Managed Environments are selected for test and prod only.
+
+| Setting               | Dev         | Test        | Prod       |
+|-----------------------|-------------|-------------|------------|
+| Environment type      | Sandbox     | Sandbox     | Production |
+| Auditing              | Enabled     | Enabled     | Enabled    |
+| Audit retention days  | 31          | 90          | 365        |
+| Plug-in tracing       | `Exception` | `Exception` | `Off`      |
+| User-access auditing  | Disabled    | Disabled    | Enabled    |
+| Read auditing         | Disabled    | Disabled    | Disabled   |
+| Email upload limit    | 32 MB       | 16 MB       | 5 MB       |
+| Blocked attachments   | Unmanaged   | 7 types     | 16 types   |
+| Managed Environment   | Null        | Enabled     | Enabled    |
+
+Each profile groups these under `settings`, which maps to one `powerplatform_environment_settings` resource per environment.
+The environment module validates whole-day audit retention from 31 through 24855, or `-1` for indefinite retention.
+Access or read auditing requires auditing to be enabled. Table- and column-level audit configuration is separate;
+enabling environment auditing does not select every table or column for auditing.
+Upload limits accept 1024 bytes through the 134217728-byte (128 MB) platform maximum.
+Review existing settings, retention costs, storage capacity, and compliance requirements before adopting these values.
+The 365-day production baseline is a demo policy, not a compliance guarantee.
+
+### Blocked attachment extensions
+
+> [!WARNING]
+> A configured set replaces that environment's entire blocked list rather than adding to it.
+> Review the current list before applying, because a short list can remove existing protections.
+
+The module rejects an empty set, which would clear the list, and requires lowercase extensions without leading dots.
+Dev omits this setting and keeps whatever the environment already blocks. Test and prod declare explicit demo lists.
+
+### Managed Environment controls
+
+* Test disables canvas-app sharing to security groups and caps individual sharing at 20 users. Solution checker uses `Warn`; flow sharing and agent editor grants remain allowed. Agent viewer sharing excludes security groups and is capped at 20 users.
+* Prod disables canvas-app sharing to security groups and caps individual sharing at 5 users. Solution checker uses `Block`; flow sharing, agent viewer sharing, and agent editor grants are blocked. The inactive agent viewer cap is `-1`.
+* Both profiles disable usage insights and leave validation emails unsuppressed. The solution-checker rule-override/exclusion set is empty, so no rules are excluded by this configuration.
+* Dev has `managed_environment = null`, so this configuration does not manage those controls for dev. This does not prove an existing dev environment is unmanaged outside Terraform.
+
+Root validation requires every Production environment to have auditing, user-access auditing, blocked attachment extensions,
+solution checker `Block`, no canvas group sharing, an individual canvas sharing cap from 1 through 5, and blocked flow and agent sharing.
+The environment module additionally checks coherent sharing modes and caps: active caps are positive integers,
+while inactive caps use `-1`. Production's stricter baseline cannot be relaxed through tfvars alone.
+
+> [!IMPORTANT]
+> Managed Environments for test and prod are an accepted premium-licensing choice, not proof of entitlement.
+> Verify the required licenses for affected users and workloads, plus tenant and Dataverse capacity, before applying.
+
+Sharing restrictions do not revoke existing grants and can take up to one hour to take effect.
+Review existing shares separately. Group-sharing restrictions affect app distribution; they do not remove the environment's Entra access group.
+The 20-user and 5-user caps are demo policy choices, not universal enterprise recommendations.
+Solution checker `Block` blocks solution imports with critical violations; it does not block unmanaged customizations generally.
+
+### Adopting and removing settings
+
+Creating a `powerplatform_environment_settings` resource adopts and updates settings on an existing environment;
+it does not create another environment. Its destroy operation is a settings no-op, not a rollback of applied changes.
+Creating a `powerplatform_managed_environment` resource enables or updates controls on the referenced environment,
+but destroying it disables Managed Environment controls. Do not treat removing either resource as a safe rollback.
+Omitted settings groups are computed: they keep the environment's current values instead of being reset.
+This configuration manages only auditing, email upload limits, and blocked attachments;
+AI features, behavior settings, and the IP firewall stay unmanaged here.
 
 ## Tenant governance
 
-The selected baseline is enabled in `infrastructure.tfvars`. The existing workflow deploys these resources along with the environments.
+The selected baseline is enabled in `config/tenant.tfvars`. The workflow manages it once through `module.tenant` in the same state as the environments.
 Review the governance plan before pushing to `main`, because a push triggers automatic apply.
 
 ### Tenant-wide settings
@@ -98,16 +214,35 @@ Cleanup rejects every other resource change, including updates and replacements,
 After cleanup, leave `delete_demo_dlp` disabled for normal deployment. The option defaults to false and cannot authorize deletions on pushes.
 Do not bypass the deletion guard or discard the complete state file to complete this transition.
 
+## State compatibility and extension
+
+Existing environment and Entra group state addresses stay unchanged: `module.power_platform` retains its label,
+and `module.azure` is unchanged. Moving environment source files into a child folder does not change those addresses.
+
+The `moved` declaration in `tenant.tf` moves the whole resource from
+`module.power_platform.powerplatform_tenant_settings.governance` to `module.tenant.powerplatform_tenant_settings.governance`,
+including its counted instance. An upgrade plan should show a state-address move, not tenant-settings destruction or recreation.
+Keep this declaration for upgrade compatibility with states that still use the old address.
+
+For an existing deployment, expect three environment-settings resource additions and two Managed Environment resource additions.
+These adopt or update the existing environments' settings; they are not five new environments.
+Review the actual plan for the tenant move and any drift, and stop if it proposes unexpected environment or group replacement.
+These are expected refactor effects, not a verified live-plan result. No remote-state operation or deployment has been performed for this refactor.
+
+For future IaC domains, add sibling modules alongside the relevant existing modules and expose their inputs, outputs, and tests.
+Keep tenant-wide singletons under one owner, never duplicated per environment or across states.
+Add folders when they contain an implementation, not as empty placeholders.
+Separate environment states are a possible future design, not the current layout: they require a separately planned, explicit state migration
+and an ownership decision for shared tenant resources. Splitting tfvars files does not split state.
+
 ## GitHub repository setup
 
 In `mawasile/power-platform-terraform-demo`, add these under Settings > Secrets and variables > Actions.
 
-| Kind     | Name                       | Value                                             |
-|----------|----------------------------|---------------------------------------------------|
-| Secret   | `AZURE_TENANT_ID`           | Microsoft Entra tenant ID                          |
-| Secret   | `AZURE_CLIENT_ID`           | Application/client ID of the deployment principal  |
-| Variable | `TF_STATE_STORAGE_ACCOUNT` | Existing Azure storage account name               |
-| Variable | `TF_STATE_CONTAINER`       | Existing private blob container name, e.g. tfstate  |
+* Secret `AZURE_TENANT_ID`: Microsoft Entra tenant ID
+* Secret `AZURE_CLIENT_ID`: application/client ID of the deployment principal
+* Variable `TF_STATE_STORAGE_ACCOUNT`: existing Azure storage account name
+* Variable `TF_STATE_CONTAINER`: existing private blob container name, such as `tfstate`
 
 The workflow maps the two secrets to `ARM_CLIENT_ID` / `ARM_TENANT_ID` for AzureAD and the backend,
 and to `POWER_PLATFORM_CLIENT_ID` / `POWER_PLATFORM_TENANT_ID` for Power Platform.
@@ -150,27 +285,35 @@ Do not change the account, container, or key after deployment without explicitly
 
 The [Terraform infrastructure workflow](../.github/workflows/terraform.yml) runs from `infra`.
 
+> [!WARNING]
+> The current working tree is missing `.github/scripts/check-terraform-plan.mjs` and `.github/scripts/check-terraform-plan.test.mjs`, which the workflow still references.
+> These pre-existing deletions block the workflow until resolved separately. Do not remove or bypass the safety guard to work around them.
+
 1. Pull requests to `main` run formatting, backend-free initialization, validation, and mocked tests. This job has no cloud secrets or OIDC token permission; it does not perform a live cloud plan.
 2. Pushes to `main` affecting infrastructure or the workflow run those checks, then plan and apply using the protected environment.
 3. Manual runs on `main` plan only by default. Select the `apply` checkbox to apply the saved plan in that run.
 
 Configure OIDC, repository settings, and backend storage before pushing to `main` for the first deployment.
-Deployment uses the committed lockfile and tfvars; it never runs `terraform init -upgrade`.
+Deployment uses the committed lockfile and all three tfvars files; it never runs `terraform init -upgrade`.
+Both mocked tests and the deployment plan load `infrastructure.tfvars`, `config/environments.tfvars`, and `config/tenant.tfvars`.
+The plan uses `terraform plan "-var-file=infrastructure.tfvars" "-var-file=config/environments.tfvars" "-var-file=config/tenant.tfvars" -out=deployment.tfplan`,
+with the workflow's additional noninteractive and locking flags. Apply consumes that saved plan rather than reloading different profiles.
 Concurrent deployments are serialized and running applies are not cancelled by newer pushes.
 Azure Blob leases provide state locking, including protection from other Terraform clients.
 Normal runs block plans that delete or replace any resource; the manual retired-policy cleanup is the only narrowly scoped exception.
 Intentional destructive changes require a separately reviewed process rather than bypassing the guard casually.
 Plans stay on the runner and are deleted at the end of the job, not uploaded as artifacts.
 
-This workflow assumes a fresh deployment or an already-correct remote state.
-If resources already exist, migrate/import their state before the first deployment to avoid creating duplicates.
-No legacy resource-address migration is included in this configuration.
+The tenant-settings move supports upgrades from the previous module layout; it is not a general import of existing infrastructure.
+If resources exist but are not tracked in this state, coordinate their migration/import before deployment to avoid duplicates.
 
 ## Local checks without cloud access
 
 From `infra`, run `terraform init -backend=false -lockfile=readonly`, `terraform fmt -check -recursive`,
-`terraform validate`, and `terraform test "-var-file=infrastructure.tfvars"`. Both providers are mocked during tests.
-The quoted argument also works in PowerShell. Plain `terraform test` does not load the deployment file and reports missing required variables.
+`terraform validate`, and `terraform test "-var-file=infrastructure.tfvars" "-var-file=config/environments.tfvars" "-var-file=config/tenant.tfvars"`.
+Both providers are mocked during tests. Quote each complete `-var-file=...` argument in PowerShell.
+Plain `terraform test` does not load these deployment files and reports missing required variables.
+Mock tests do not verify licenses, capacity, live permissions, or service-side enforcement.
 Real deployment is performed only through GitHub Actions.
 Commit `.terraform.lock.hcl` alongside the infrastructure files.
 
@@ -181,4 +324,8 @@ Commit `.terraform.lock.hcl` alongside the infrastructure files.
 * [Azure Blob backend OIDC and RBAC](https://developer.hashicorp.com/terraform/language/backend/azurerm)
 * [Control environment creation](https://learn.microsoft.com/power-platform/admin/control-environment-creation)
 * [Tenant settings resource](https://raw.githubusercontent.com/microsoft/terraform-provider-power-platform/v4.2.0/docs/resources/tenant_settings.md)
-
+* [Managed Environment licensing](https://learn.microsoft.com/power-platform/admin/managed-environment-licensing)
+* [Managed Environment sharing limits](https://learn.microsoft.com/power-platform/admin/managed-environment-sharing-limits)
+* [Solution checker enforcement](https://learn.microsoft.com/power-platform/admin/managed-environment-solution-checker)
+* [Dataverse auditing](https://learn.microsoft.com/power-platform/admin/manage-dataverse-auditing)
+* [Environment settings resource](https://registry.terraform.io/providers/microsoft/power-platform/latest/docs/resources/environment_settings)

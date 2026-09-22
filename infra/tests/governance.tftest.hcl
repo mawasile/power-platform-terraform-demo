@@ -1,27 +1,6 @@
 mock_provider "powerplatform" {}
 
 variables {
-  location         = "europe"
-  enable_dataverse = true
-  language_code    = 1033
-  currency_code    = "EUR"
-  environments = {
-    dev = {
-      display_name      = "Demo - Dev"
-      environment_type  = "Sandbox"
-      security_group_id = "22222222-2222-2222-2222-222222222222"
-    }
-    test = {
-      display_name      = "Demo - Test"
-      environment_type  = "Sandbox"
-      security_group_id = "33333333-3333-3333-3333-333333333333"
-    }
-    prod = {
-      display_name      = "Demo - Prod"
-      environment_type  = "Production"
-      security_group_id = "44444444-4444-4444-4444-444444444444"
-    }
-  }
   tenant_settings = {
     disable_environment_creation_by_non_admin_users           = true
     disable_trial_environment_creation_by_non_admin_users     = true
@@ -34,7 +13,7 @@ variables {
 run "governance_disabled" {
   command = plan
   module {
-    source = "./modules/power-platform"
+    source = "./modules/power-platform/tenant"
   }
   variables {
     tenant_settings = null
@@ -49,7 +28,7 @@ run "strict_governance" {
   # Only mock providers are used; no tenant settings are changed.
   command = apply
   module {
-    source = "./modules/power-platform"
+    source = "./modules/power-platform/tenant"
   }
 
   assert {
@@ -68,7 +47,7 @@ run "strict_governance" {
 run "explicit_false_setting" {
   command = plan
   module {
-    source = "./modules/power-platform"
+    source = "./modules/power-platform/tenant"
   }
   variables {
     tenant_settings = {

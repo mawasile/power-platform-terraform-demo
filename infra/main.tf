@@ -11,14 +11,13 @@ module "azure" {
 }
 
 module "power_platform" {
-  source = "./modules/power-platform"
+  # Keep this module label so existing environment state addresses stay stable.
+  source = "./modules/power-platform/environments"
 
   environments = {
-    for name, environment in var.environments : name => {
-      display_name      = environment.display_name
-      environment_type  = environment.environment_type
+    for name, environment in var.environments : name => merge(environment, {
       security_group_id = module.azure.security_group_ids[name]
-    }
+    })
   }
 
   location         = var.location
@@ -26,5 +25,4 @@ module "power_platform" {
   enable_dataverse = var.enable_dataverse
   language_code    = var.language_code
   currency_code    = var.currency_code
-  tenant_settings  = var.tenant_settings
 }

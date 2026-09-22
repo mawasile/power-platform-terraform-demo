@@ -67,7 +67,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Run mocked tests
-        run: terraform test -var-file=infrastructure.tfvars -no-color
+        run: terraform test -var-file=infrastructure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -no-color
 
       - name: Test plan safety guard
         run: node --test ../.github/scripts/check-terraform-plan.test.mjs
@@ -85,7 +85,7 @@ jobs:
     permissions:
       contents: read
       id-token: write
-    # All three environments share one state. Never cancel a running apply.
+    # Every environment shares one state. Never cancel a running apply.
     concurrency:
       group: terraform-infrastructure
       cancel-in-progress: false
@@ -124,6 +124,8 @@ jobs:
             fi
           done
           test -f infrastructure.tfvars
+          test -f config/environments.tfvars
+          test -f config/tenant.tfvars
 
       - name: Initialize remote state with OIDC
         run: |
@@ -135,7 +137,7 @@ jobs:
         run: terraform validate -no-color
 
       - name: Plan committed infrastructure
-        run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -out=deployment.tfplan
+        run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
 
       - name: Block deletions and replacements
         env:

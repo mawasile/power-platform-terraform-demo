@@ -10,6 +10,8 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 !/infra/infrastructure.tfvars
+!/infra/config/environments.tfvars
+!/infra/config/tenant.tfvars
 
 # GitHub injects deployment credentials; never commit local environment files.
 .env
