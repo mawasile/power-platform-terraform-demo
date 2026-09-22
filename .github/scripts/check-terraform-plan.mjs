@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 const SAFE_ACTIONS = ['no-op', 'read', 'create', 'update'];
 const KNOWN_ACTIONS = [...SAFE_ACTIONS, 'delete', 'create,delete', 'delete,create'];
 
-export function checkPlan(plan) {
+export function checkPlan(plan, destroyRequested = false) {
   if (!plan || !/^1\./.test(plan.format_version ?? '') ||
       !plan.planned_values || plan.errored || plan.complete === false ||
       !Array.isArray(plan.resource_changes ?? [])) {
@@ -19,18 +19,27 @@ export function checkPlan(plan) {
     if (!KNOWN_ACTIONS.includes(action)) {
       throw new Error('Unknown resource action; apply is blocked.');
     }
-    if (actions.includes('delete')) {
+    if (action === 'no-op' || action === 'read') continue;
+    if (destroyRequested) {
+      // A destroy run must not sneak in creates, updates, or replacements.
+      if (action !== 'delete') {
+        throw new Error('A destroy run may only delete resources; apply is blocked.');
+      }
+    } else if (actions.includes('delete')) {
       throw new Error('Plan contains deletions or replacements; automatic apply is blocked.');
     }
-    if (action !== 'no-op' && action !== 'read') changes += 1;
+    changes += 1;
   }
   return changes;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const changes = checkPlan(JSON.parse(readFileSync(0, 'utf8')));
-    console.log(`Deletion/replacement guard passed. Resource changes to apply: ${changes}.`);
+    const destroyRequested = process.env.DESTROY_REQUESTED === 'true';
+    const changes = checkPlan(JSON.parse(readFileSync(0, 'utf8')), destroyRequested);
+    console.log(destroyRequested
+      ? `Destroy guard passed. Resources to destroy: ${changes}.`
+      : `Deletion/replacement guard passed. Resource changes to apply: ${changes}.`);
   } catch (error) {
     // JSON parse errors may contain snippets of sensitive plan data.
     console.error(`::error::${error instanceof SyntaxError ? 'Invalid plan JSON; apply is blocked.' : error.message}`);

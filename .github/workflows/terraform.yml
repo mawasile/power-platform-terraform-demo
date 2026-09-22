@@ -20,6 +20,16 @@ on:
         type: boolean
         required: true
         default: false
+      destroy:
+        description: "DANGER: plan a destroy of the environments and access groups instead of applying the configuration"
+        type: boolean
+        required: true
+        default: false
+      confirm_destroy:
+        description: Type DESTROY to confirm a destroy run
+        type: string
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -104,7 +114,14 @@ jobs:
           terraform_wrapper: false
 
       - name: Check deployment settings
+        env:
+          DESTROY_REQUESTED: ${{ inputs.destroy == true }}
+          DESTROY_CONFIRMATION: ${{ inputs.confirm_destroy }}
         run: |
+          if [[ "$DESTROY_REQUESTED" == "true" && "$DESTROY_CONFIRMATION" != "DESTROY" ]]; then
+            echo "::error::Destroy requires typing DESTROY in the confirmation input."
+            exit 1
+          fi
           for name in ARM_CLIENT_ID ARM_TENANT_ID TF_STATE_STORAGE_ACCOUNT TF_STATE_CONTAINER; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Missing $name. See infra/README.md for repository setup."
@@ -126,9 +143,26 @@ jobs:
         run: terraform validate -no-color
 
       - name: Plan committed infrastructure
+        if: inputs.destroy != true
         run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
 
-      - name: Block deletions and replacements
+      # Targets exclude module.tenant: its settings are protected by prevent_destroy
+      # and removing them would restore pre-management values tenant-wide.
+      - name: Plan destroy
+        if: inputs.destroy == true
+        run: |
+          terraform plan -destroy -input=false -no-color -lock-timeout=5m \
+            -var-file=infrastructure.tfvars \
+            -var-file=config/azure.tfvars \
+            -var-file=config/environments.tfvars \
+            -var-file=config/tenant.tfvars \
+            -target=module.power_platform \
+            -target=module.azure \
+            -out=deployment.tfplan
+
+      - name: Check the plan against the requested operation
+        env:
+          DESTROY_REQUESTED: ${{ inputs.destroy == true }}
         run: |
           # Pipefail also blocks apply if Terraform cannot produce the plan JSON.
           terraform show -json deployment.tfplan | node ../.github/scripts/check-terraform-plan.mjs

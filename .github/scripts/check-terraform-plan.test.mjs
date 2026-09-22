@@ -37,7 +37,23 @@ test('malformed and incomplete plans fail closed', () => {
 });
 
 const script = fileURLToPath(new URL('./check-terraform-plan.mjs', import.meta.url));
-const run = (input) => spawnSync(process.execPath, [script], { input, encoding: 'utf8' });
+const run = (input, env = {}) => spawnSync(process.execPath, [script], { input, encoding: 'utf8', env: { ...process.env, ...env } });
+
+test('destroy runs accept deletions and count them', () => {
+  assert.equal(checkPlan(plan([change(['delete']), change(['delete'])]), true), 2);
+  assert.equal(checkPlan(plan([change(['no-op'])]), true), 0);
+});
+
+test('destroy runs still block creates, updates, and replacements', () => {
+  for (const actions of [['create'], ['update'], ['create', 'delete'], ['delete', 'create']]) {
+    assert.throws(() => checkPlan(plan([change(actions)]), true), /only delete/);
+  }
+});
+
+test('destroy runs still fail closed on malformed plans', () => {
+  assert.throws(() => checkPlan({}, true), /Invalid or incomplete/);
+  assert.throws(() => checkPlan(plan([change(['forget'])]), true), /Unknown/);
+});
 
 test('CLI consumes stdin and reports the guard result', () => {
   const allowed = run(JSON.stringify(plan([change(['create'])])));
@@ -47,6 +63,21 @@ test('CLI consumes stdin and reports the guard result', () => {
   const blocked = run(JSON.stringify(plan([change(['delete'])])));
   assert.equal(blocked.status, 1);
   assert.match(blocked.stderr, /deletions or replacements/);
+});
+
+test('CLI enters destroy mode only for the exact flag', () => {
+  const destroyPlan = JSON.stringify(plan([change(['delete'])]));
+  for (const flag of ['false', '', 'TRUE', '1']) {
+    assert.equal(run(destroyPlan, { DESTROY_REQUESTED: flag }).status, 1, `flag ${flag} must not enable destroy`);
+  }
+
+  const destroyed = run(destroyPlan, { DESTROY_REQUESTED: 'true' });
+  assert.equal(destroyed.status, 0, destroyed.stderr);
+  assert.match(destroyed.stdout, /Resources to destroy: 1/);
+
+  const creating = run(JSON.stringify(plan([change(['create'])])), { DESTROY_REQUESTED: 'true' });
+  assert.equal(creating.status, 1);
+  assert.match(creating.stderr, /only delete/);
 });
 
 test('CLI rejects malformed JSON without exposing plan fragments', () => {

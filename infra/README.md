@@ -288,6 +288,7 @@ The [Terraform infrastructure workflow](../.github/workflows/terraform.yml) runs
 1. Pull requests to `main` run formatting, backend-free initialization, validation, and mocked tests. This job has no cloud secrets or OIDC token permission; it does not perform a live cloud plan.
 2. Pushes to `main` affecting infrastructure or the workflow run those checks, then plan and apply using the protected environment.
 3. Manual runs on `main` plan only by default. Select the `apply` checkbox to apply the saved plan in that run.
+4. Manual runs can instead select `destroy` to plan a teardown. See the teardown section below.
 
 Configure OIDC, repository settings, and backend storage before pushing to `main` for the first deployment.
 Deployment uses the committed lockfile and all four tfvars files; it never runs `terraform init -upgrade`.
@@ -296,8 +297,26 @@ Apply consumes the saved plan rather than reloading different profiles.
 Concurrent deployments are serialized and running applies are not cancelled by newer pushes.
 Azure Blob leases provide state locking, including protection from other Terraform clients.
 Normal runs block plans that delete or replace any resource, and the guard also fails closed on an unreadable or incomplete plan.
-Intentional destructive changes require a separately reviewed process rather than bypassing the guard casually.
 Plans stay on the runner and are deleted at the end of the job, not uploaded as artifacts.
+
+### Destroying the demo
+
+> [!CAUTION]
+> A destroy deletes the Power Platform environments together with their Dataverse databases and all data in them.
+> Deleted environments may be recoverable only for a limited period, if at all. Export anything you need first.
+
+A teardown is manual and deliberately awkward to trigger by accident:
+
+1. Run the workflow on `main` with `destroy` selected and `DESTROY` typed into `confirm_destroy`. Leave `apply` unselected to review the destroy plan without executing it.
+2. Re-run with both `destroy` and `apply` selected to execute the reviewed plan.
+
+Pushes never destroy anything: the destroy inputs exist only for manual runs, and a mistyped confirmation fails the job before Terraform runs.
+In a destroy run the same guard script switches modes and permits deletions only; any create, update, or replacement in that plan blocks the apply.
+
+The destroy targets `module.power_platform` and `module.azure`, so it removes the environments, their settings, the Managed Environment controls, and the Entra access groups.
+It deliberately leaves the tenant settings in place: that resource is protected by `prevent_destroy`, and destroying it would restore pre-management values across the whole tenant.
+Remove tenant governance separately and deliberately if you truly intend to stop managing it.
+After a destroy the state still exists and remains the source of truth for a later redeployment.
 
 The tenant-settings move supports upgrades from the previous module layout; it is not a general import of existing infrastructure.
 If resources exist but are not tracked in this state, coordinate their migration/import before deployment to avoid duplicates.
