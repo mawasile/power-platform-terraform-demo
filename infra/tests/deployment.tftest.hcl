@@ -103,6 +103,8 @@ run "committed_configuration" {
     error_message = "Every configured solution must import into exactly its configured environments, at its configured version."
   }
 
+  # Committed values apply offline; solution_secrets stays empty here because real
+  # values only exist in the deployment environment via TF_VAR_solution_secrets.
   assert {
     condition = alltrue(flatten([
       for name, solution in var.solutions : [
@@ -113,6 +115,18 @@ run "committed_configuration" {
         ]
       ]
     ]))
-    error_message = "Every configured environment variable value must match its tfvars value and its own environment."
+    error_message = "Every committed environment variable value must match its tfvars value and its own environment."
+  }
+
+  assert {
+    condition = alltrue(flatten([
+      for name, environments in var.solution_secrets : [
+        for environment, variables in environments : [
+          for schema_name, value in variables :
+          module.solutions.environment_variable_values["${name}/${environment}/${schema_name}"].value == value
+        ]
+      ]
+    ]))
+    error_message = "Every injected secret value must reach its own solution and environment."
   }
 }

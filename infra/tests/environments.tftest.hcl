@@ -12,7 +12,8 @@ variables {
   environment_access_groups = {}
 
   # Solution imports target environment keys; keep them out of environment runs.
-  solutions = {}
+  solutions        = {}
+  solution_secrets = {}
 
   environments = {
     dev = {
@@ -351,6 +352,70 @@ run "reject_values_for_untargeted_environment" {
   }
 
   expect_failures = [var.solutions]
+}
+
+run "solution_secrets_override_committed_values" {
+  command = plan
+
+  variables {
+    solutions = {
+      SampleSolution = {
+        version               = "1.0.0.2"
+        file                  = "solutions/TerrraformExampleSolution_managed.zip"
+        environments          = ["test", "prod"]
+        environment_variables = { test = { bal_MagicNumber = "42" } }
+      }
+    }
+    solution_secrets = {
+      SampleSolution = {
+        prod = { bal_MagicNumber = "7" }
+        test = { bal_MagicNumber = "override" }
+      }
+    }
+  }
+
+  assert {
+    condition = (
+      module.solutions.environment_variable_values["SampleSolution/prod/bal_MagicNumber"].value == "7" &&
+      module.solutions.environment_variable_values["SampleSolution/test/bal_MagicNumber"].value == "override"
+    )
+    error_message = "Injected secrets must apply, and must win over a committed value for the same schema name."
+  }
+}
+
+run "reject_solution_secrets_for_untargeted_environment" {
+  command = plan
+
+  variables {
+    solutions = {
+      SampleSolution = {
+        version      = "1.0.0.2"
+        file         = "solutions/SampleSolution_managed.zip"
+        environments = ["test"]
+      }
+    }
+    solution_secrets = {
+      SampleSolution = {
+        prod = { bal_MagicNumber = "7" }
+      }
+    }
+  }
+
+  expect_failures = [var.solution_secrets]
+}
+
+run "reject_solution_secrets_for_unknown_solution" {
+  command = plan
+
+  variables {
+    solution_secrets = {
+      UnknownSolution = {
+        test = { bal_MagicNumber = "7" }
+      }
+    }
+  }
+
+  expect_failures = [var.solution_secrets]
 }
 
 run "per_environment_provisioning_overrides" {

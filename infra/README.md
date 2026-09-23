@@ -54,7 +54,6 @@ TerrraformExampleSolution = {
   environments = ["test", "prod"]
   environment_variables = {
     test = { bal_MagicNumber = "42" }
-    prod = { bal_MagicNumber = "7" }
   }
 }
 ```
@@ -66,9 +65,34 @@ Exporting a new version through the [solution export workflow](../.github/workfl
 source in `solutions/`; the managed package for deployment is a separate artifact.
 
 Imports target downstream environments only. Deploying a managed solution into dev would layer it over the unmanaged source,
-so the configuration rejects `dev` as a target. Environment variable values may only target environments that receive the solution.
+so the configuration rejects `dev` as a target.
 Definitions ship inside the package, so values are applied after the import through `powerplatform_environment_variable_value`.
-A definition with no value stays valid until a consumer needs one, and values are treated as sensitive because a definition may be a secret.
+A definition with no value stays valid until a consumer needs one.
+
+### Environment variable values
+
+Values come from two sources that merge per environment:
+
+* `config/solutions.tfvars` holds ordinary, reviewable values under `environment_variables`. Test's `bal_MagicNumber` lives here.
+* The sensitive `solution_secrets` variable holds values that must not be committed. Prod's `bal_MagicNumber` lives here.
+
+```hcl
+solution_secrets = {
+  TerrraformExampleSolution = {
+    prod = { bal_MagicNumber = "7" }
+  }
+}
+```
+
+The deployment workflow builds that object at runtime from the `MAGIC_NUMBER_PROD` GitHub Environment secret, using `jq -n`
+so the secret is never interpolated into a JSON string, then masks it and passes it as `TF_VAR_solution_secrets`.
+A secret wins over a committed value for the same schema name, so an environment can be promoted from a committed value to an
+injected one without editing the module. Both sources may only target environments that receive the solution, and
+`solution_secrets` must reference a solution that exists in `solutions`.
+
+Because values may be sensitive, the module iterates the map keys rather than the map itself: a sensitive value cannot be used
+as a resource instance key. Mocked tests run with `solution_secrets` empty by default and assert the committed values, while a
+dedicated run supplies both sources to confirm the override order.
 
 > [!IMPORTANT]
 > Production enforces solution checker `Block`, so a package with critical findings fails to import there.
@@ -275,6 +299,7 @@ In `mawasile/power-platform-terraform-demo`, add these under Settings > Secrets 
 
 * Secret `AZURE_TENANT_ID`: Microsoft Entra tenant ID
 * Secret `AZURE_CLIENT_ID`: application/client ID of the deployment principal
+* Secret `MAGIC_NUMBER_PROD`: prod value for the `bal_MagicNumber` environment variable, [see Solution deployment](#environment-variable-values)
 * Variable `TF_STATE_STORAGE_ACCOUNT`: existing Azure storage account name
 * Variable `TF_STATE_CONTAINER`: existing private blob container name, such as `tfstate`
 

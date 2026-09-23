@@ -1,5 +1,5 @@
 variable "solutions" {
-  description = "Managed solution packages to import, keyed by the solution unique name from the package. Each entry lists the environments that receive it."
+  description = "Managed solution packages to import, keyed by the solution unique name from the package. Each entry lists the environments that receive it and any non-secret environment variable values."
   type = map(object({
     version                          = string
     file                             = string
@@ -50,5 +50,28 @@ variable "solutions" {
       ]
     ]))
     error_message = "Environment variable values may only target environments that receive the solution."
+  }
+}
+
+variable "solution_secrets" {
+  description = "Sensitive environment variable values, keyed by solution unique name, then environment, then schema name. Supply only via TF_VAR_solution_secrets sourced from GitHub Environment secrets; these override any committed value for the same schema name."
+  type        = map(map(map(string)))
+  default     = {}
+  sensitive   = true
+
+  validation {
+    condition = alltrue([
+      for name in keys(var.solution_secrets) : contains(keys(var.solutions), name)
+    ])
+    error_message = "Each solution_secrets key must match a solution defined in var.solutions."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for name, environments in var.solution_secrets : [
+        for environment in keys(environments) : try(contains(var.solutions[name].environments, environment), false)
+      ]
+    ]))
+    error_message = "solution_secrets may only target environments configured for that solution."
   }
 }

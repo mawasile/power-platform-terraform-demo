@@ -41,11 +41,13 @@ locals {
 }
 
 resource "powerplatform_environment_variable_value" "values" {
-  for_each = local.environment_variables
+  # Values may be sensitive, which would poison instance keys; iterate the keys,
+  # which only contain solution, environment, and schema names.
+  for_each = nonsensitive(toset(keys(local.environment_variables)))
 
-  environment_id = each.value.environment_id
-  schema_name    = each.value.schema_name
-  value          = each.value.value
+  environment_id = local.environment_variables[each.key].environment_id
+  schema_name    = local.environment_variables[each.key].schema_name
+  value          = local.environment_variables[each.key].value
 
   # The package ships the definitions, so the import has to land first.
   depends_on = [powerplatform_managed_solution.deployments]

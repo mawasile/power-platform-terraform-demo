@@ -136,8 +136,26 @@ jobs:
       - name: Validate configuration
         run: terraform validate -no-color
 
+      # The value never appears in tfvars or logs; only the masked JSON is passed on.
+      - name: Build solution secret values
+        if: inputs.destroy != true
+        id: solution_secrets
+        env:
+          MAGIC_NUMBER_PROD: ${{ secrets.MAGIC_NUMBER_PROD }}
+        run: |
+          if [[ -z "$MAGIC_NUMBER_PROD" ]]; then
+            echo "::error::Missing MAGIC_NUMBER_PROD. See infra/README.md for repository setup."
+            exit 1
+          fi
+          json=$(jq -n --arg prod "$MAGIC_NUMBER_PROD" \
+            '{TerrraformExampleSolution: {prod: {bal_MagicNumber: $prod}}}')
+          echo "::add-mask::$json"
+          echo "json=$json" >> "$GITHUB_OUTPUT"
+
       - name: Plan committed infrastructure
         if: inputs.destroy != true
+        env:
+          TF_VAR_solution_secrets: ${{ steps.solution_secrets.outputs.json }}
         run: terraform plan -input=false -no-color -lock-timeout=5m -var-file=infrastructure.tfvars -var-file=config/azure.tfvars -var-file=config/environments.tfvars -var-file=config/solutions.tfvars -var-file=config/tenant.tfvars -out=deployment.tfplan
 
       # Targets exclude module.tenant: its settings are protected by prevent_destroy
