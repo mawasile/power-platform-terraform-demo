@@ -147,7 +147,8 @@ jobs:
             echo "::error::Missing MAGIC_NUMBER_PROD. See infra/README.md for repository setup."
             exit 1
           fi
-          json=$(jq -n --arg prod "$MAGIC_NUMBER_PROD" \
+          # -c keeps it on one line: GITHUB_OUTPUT rejects a multi-line key=value.
+          json=$(jq -c -n --arg prod "$MAGIC_NUMBER_PROD" \
             '{TerrraformExampleSolution: {prod: {bal_MagicNumber: $prod}}}')
           echo "::add-mask::$json"
           echo "json=$json" >> "$GITHUB_OUTPUT"
