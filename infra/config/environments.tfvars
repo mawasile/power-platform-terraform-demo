@@ -5,7 +5,7 @@
 # and tenant-wide controls belong in tenant.tfvars.
 environments = {
   dev = {
-    display_name     = "Demo - Dev"
+    display_name     = "Demo-Dev"
     environment_type = "Sandbox"
 
     settings = {
@@ -25,7 +25,7 @@ environments = {
   }
 
   test = {
-    display_name     = "Demo - Test"
+    display_name     = "Demo-Test"
     environment_type = "Sandbox"
 
     settings = {
@@ -54,7 +54,7 @@ environments = {
   }
 
   prod = {
-    display_name     = "Demo - Prod"
+    display_name     = "Demo-Prod"
     environment_type = "Production"
 
     settings = {
