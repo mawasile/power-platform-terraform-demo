@@ -5,12 +5,12 @@
 # injected at deploy time from the MAGIC_NUMBER_PROD GitHub Environment secret.
 solutions = {
   TerrraformExampleSolution = {
-    version      = "1.0.0.1"
+    version      = "1.0.0.3"
     file         = "solutions/TerrraformExampleSolution_managed.zip"
     environments = ["test", "prod"]
 
     environment_variables = {
-      test = { bal_MagicNumber = "42" }
+      test = { bal_MagicNumber = "42134" }
     }
   }
 }

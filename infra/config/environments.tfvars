@@ -5,7 +5,7 @@
 # and tenant-wide controls belong in tenant.tfvars.
 environments = {
   dev = {
-    display_name     = "Demo-Dev"
+    display_name     = "Demo-Dev123"
     environment_type = "Sandbox"
 
     settings = {

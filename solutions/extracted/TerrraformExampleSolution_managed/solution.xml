@@ -1,11 +1,11 @@
-<ImportExportXml version="9.2.26091.144" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26091.144" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26091.00144">
+<ImportExportXml version="9.2.26084.156" SolutionPackageVersion="9.2" languagecode="1033" generatedBy="CrmLive" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" OrganizationVersion="9.2.26084.156" OrganizationSchemaType="Standard" CRMServerServiceabilityVersion="9.2.26084.00156">
   <SolutionManifest>
     <UniqueName>TerrraformExampleSolution</UniqueName>
     <LocalizedNames>
       <LocalizedName description="TerrraformExampleSolution" languagecode="1033" />
     </LocalizedNames>
     <Descriptions />
-    <Version>1.0.0.1</Version>
+    <Version>1.0.0.3</Version>
     <Managed>1</Managed>
     <Publisher>
       <UniqueName>BalticSummit</UniqueName>
